@@ -1,6 +1,6 @@
 # 对齐 Codex 客户端与 Sub2API 账号协议
 
-Status: ready-for-agent
+Status: ready-for-human
 
 执行状态：配置维护工具与本机单字段修改已完成；五个新会话、三轮工具任务及两端日志验收待主任务执行。
 
@@ -23,3 +23,5 @@ Status: ready-for-agent
 
 - 2026-11-09：由本轮已确认协议故障生成。用户已确认使用真实 Codex 请求与两端日志验收；本次仅发布工单。
 - 2026-11-09：用户随后授权实施。新增 [维护工具及操作说明](../01-transport-maintenance.md)，五项合成配置检查通过；本机 `OpenAI.supports_websockets` 已由 true 改为 false，逐字节确认其他内容一致。私有原始备份位于实际 `%LOCALAPPDATA%/CodexPrivate`，脱敏应用记录保留于运维目录；未重启现有桌面、未创建密钥。端到端协议、任务与工具行为及真实回滚后业务可用性尚未验收，不能据此将本工单记为全通过。
+
+- 2026-11-09：实施与实际验收状态已更新，详见 [维护结果](../maintenance-20261109.md)；未满足的业务条件保持未验收。

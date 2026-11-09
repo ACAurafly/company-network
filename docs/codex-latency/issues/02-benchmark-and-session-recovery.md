@@ -1,6 +1,6 @@
 # 统一 Codex 计时并对照 effort 与会话整理
 
-Status: ready-for-agent
+Status: ready-for-human
 
 执行状态：采样工具和交接文档已实现，离线测试通过；现场effort对照、多轮协议及413具体会话恢复待主对话验收。原全局默认未修改。
 
@@ -29,3 +29,5 @@ Status: ready-for-agent
 - 2026-11-09：新增 [统一采样维护说明](../02-measurement-maintenance.md)、`tools/codex_latency.py` 和10项离线测试。复用已安装app-server，公开fixture、临时thread和按轮effort覆盖；保留失败分母和缺失原因。现场样本由主对话统一运行，本工单尚不声明effort收益或413恢复。
 
 - 2026-11-09：用户确认端到端验收接缝。已有两组观测统计及 6 条最近两小时的 413 记录，未做同任务 A/B。
+
+- 2026-11-09：实施与实际验收状态已更新，详见 [维护结果](../maintenance-20261109.md)；未满足的业务条件保持未验收。

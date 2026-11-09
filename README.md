@@ -24,6 +24,8 @@ python tools/package_release.py --exe build/CompanyNetwork.exe --source-repo . -
 
 用 `Get-FileHash -Algorithm SHA256 <文件>` 对照清单。校验值用于核对字节完整性，不是数字签名或业务验收。EXE 与源码分别记录哈希；脚本只核对内嵌载荷，最终维护者仍需确认该 EXE 来自交付的同一源码构建。
 
+Codex 与 Sub2API 的独立维护入口见 [响应速度实施与验收](docs/codex-latency/maintenance-20261109.md)，包括客户端协议对齐、真实请求采样、用户并发证据审核及公司内外 VPN 对照。工具均使用 Python 3.11+ 标准库，默认不修改生产账号；模型请求采样仅在显式运行采样器时发生。相关验证使用 `python -m unittest discover -s tools -p "test_*.py" -v`；员工程序与原发布包保持现有流程。
+
 ## 验证与部署
 
 ```powershell
