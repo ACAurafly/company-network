@@ -2,7 +2,7 @@
 
 比较工具和离线验证已完成；当前没有公司外真实设备样本，远程 Codex 业务仍为 `not_accepted`。协议对齐已由工单 01 修正，公司内采样可复用工单 02 的统一适配器；这些成果不表示远程问题已经修复。
 
-`tools/codex_vpn_acceptance.py` 使用 Python 3.11+ 标准库，只读本地 JSON，不发网络或模型请求，不连接/断开 VPN、不切换 Wi-Fi、不改路由。它比较 `codex_latency.py` 原始报告中的每个 task/effort/pair，保留失败与可观察重试分母；不信任原报告汇总成功数。缺首可见事件、正常终止、质量或完整轮次的样本不参与正确完成耗时比较。
+`tools/codex_vpn_acceptance.py` 使用 Python 3.11+ 标准库，只读本地 JSON，不发网络或模型请求，不连接/断开 VPN、不切换 Wi-Fi、不改路由。它比较 `codex_latency.py` 原始报告中的每个 task/effort/pair，保留失败与可观察重试分母；不信任原报告汇总成功数。缺首可见事件、正常终止、质量或完整轮次的样本不参与正确完成耗时比较。正式可比输入为当前采样器的 schema 2：两侧 `provenance` 的采样器版本、源码 SHA256、任务 manifest SHA256 和 fixture SHA256 必须完整且一致；任务 manifest 与 fixture 还须匹配本比较器使用的当前固定任务。历史 schema 1、混合版本或未知版本仅保留描述统计，状态为 `not_accepted`，配对差值为空；重新取样后再验收，不能手工把 schema 数字改成 2。
 
 ## 准备与取样
 
@@ -26,7 +26,7 @@ python tools/codex_latency.py --codex $codexBin --workdir $screenRoot --output "
 # 重复到 lan-5.json / vpn-5.json；每对编号与现场记录保持一致。
 ```
 
-合并五个 `--pairs 1` 报告时仅将 pair 改为对应配对编号，保留 sample UUID、时间、失败及重试。以下离线命令同时拒绝跨运行版本和模型合并，原文件不修改：
+合并五个 `--pairs 1` 报告时仅将 pair 改为对应配对编号，保留 sample UUID、时间、失败及重试。以下离线命令同时拒绝跨 schema、采样源码、固定任务、运行版本和模型合并，原文件不修改：
 
 ```powershell
 function Merge-Screen([string]$side) {
@@ -35,7 +35,11 @@ function Merge-Screen([string]$side) {
     foreach ($pairNo in 1..5) {
         $part = Get-Content -Raw "$screenRoot/$side-$pairNo.json" | ConvertFrom-Json
         if ($null -eq $combined) { $combined = $part }
+        if ($part.schema_version -ne 2 -or $part.schema_version -ne $combined.schema_version) { throw 'current sampler schema 2 required' }
         if ($part.runtime_version -ne $combined.runtime_version -or $part.model -ne $combined.model) { throw 'runtime/model changed' }
+        foreach ($field in @('sampler_version','source_sha256','task_manifest_sha256','fixture_sha256')) {
+            if (-not $part.provenance.$field -or $part.provenance.$field -ne $combined.provenance.$field) { throw "sampler provenance changed: $field" }
+        }
         foreach ($row in $part.samples) { $row.pair = $pairNo; $rows += $row }
     }
     $combined.samples = $rows

@@ -41,9 +41,9 @@ python tools/codex_capacity.py --evidence capacity.json --samples sampler.json -
 }
 ```
 
-`correlation_verified` 必须来自请求标识或审查过的唯一时间线，不可仅按近似时间自动匹配。每请求引用一个独立采样任务，禁止跨组复用同一 turn 或 gateway_request_id。limit1 的两路上游必须串行，且其中一路用户名额等待区间与另一路上游区间严格相交；limit2 必须证明两个上游执行区间严格相交，二者完成、质量检查通过，且无用户名额等待。三组独立结果才通过对应状态。单纯同时提交、两个 HTTP 200 均不能证明实际并发。
+`correlation_verified` 必须来自请求标识或审查过的唯一时间线，不可仅按近似时间自动匹配。每请求引用一个独立采样任务，禁止跨组复用同一 turn 或 gateway_request_id。limit1 的两路上游必须串行，且其中一路用户名额等待区间与另一路上游区间严格相交；limit2 必须证明两个上游执行区间严格相交，二者完成、质量检查通过，且无用户名额等待。三组独立结果才通过对应状态。所有 limit1 区间结束后才开始 limit2 组；两类受控组的最后结束时刻都必须不晚于每位生产用户的 `changed_at`。工具以已关联的上游区间检查顺序，事后受控验证仍可单独完成受控评估，但不能追认更早的生产试点。单纯同时提交、两个 HTTP 200 均不能证明实际并发。
 
-每个 `pilots` 元素包含 `user_id`、`original_limit: 1`、`candidate_limit: 2`、`changed_at`、`observed_until`、`source`、`complete_logs: true`、`baseline`（与顶层相同结构，结束在 changed_at 之前最多 60 秒）、`errors: []`、`rollback_completed: false`。观察至少 1800 秒且该窗口内至少三组代表性两路成功并发。用户5先完成观察并通过，才允许改变用户2。每次仅变更一个用户；用户5保留2后再试用户2不属于同时变更。窗口 `errors` 需要覆盖目标用户及共享上游，包含所有错误的类别，不能只保留成功；任一 `account_wait_timeout`、`new_429`、`authentication`、`stream_completion` 必须回滚。请求 `errors` 同样保留异常。即使后来成功或已回滚，也保留触发状态与证据。
+每个 `pilots` 元素包含 `user_id`、`original_limit: 1`、`candidate_limit: 2`、`changed_at`、`observed_until`、`source`、`complete_logs: true`、`baseline`（与顶层相同结构，结束在 changed_at 之前最多 60 秒）、`errors: []`、`rollback_completed: false`。观察至少 1800 秒且该窗口内至少三组代表性两路成功并发。用户5先完成观察并通过，才允许改变用户2。每次仅变更一个用户；用户5保留2后再试用户2不属于同时变更。窗口 `errors` 需要覆盖目标用户及共享上游，包含所有错误的类别，不能只保留成功；任一 `account_wait_timeout`、`new_429`、`authentication`、`stream_completion` 必须回滚。请求 `errors` 同样保留异常。关联客户端出现 timeout、disconnected、failed 等异常终止，或缺少 `turn/completed` 正常结束证据时，同样触发流式完成异常回滚；即使分类数组为空、NAS 最后为 HTTP 200，也不能清除该触发。主动取消与已正常结束但质量检查不通过只影响验收，不单独视作流式故障；其他已知保护条件仍生效。即使后来成功或已回滚，也保留触发状态与证据。
 
 ## 实际操作与回滚
 

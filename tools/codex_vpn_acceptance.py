@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 import statistics
 
-from codex_latency import TASKS
+from codex_latency import TASKS, provenance
 
 
 def number(value):
@@ -135,8 +135,18 @@ def network_summary(report):
 def compare(lan, vpn, evidence=None, network=None):
     evidence = evidence or {}
     reasons = []
-    if lan.get("schema_version") != 1 or vpn.get("schema_version") != 1:
-        reasons.append("unsupported sampler schema")
+    if lan.get("schema_version") != 2 or vpn.get("schema_version") != 2:
+        reasons.append("sampler schema 2 required; historical/unknown schemas are descriptive only")
+    current = provenance()
+    for field in ("sampler_version", "source_sha256", "task_manifest_sha256", "fixture_sha256"):
+        a, b = (report.get("provenance", {}).get(field) for report in (lan, vpn))
+        valid = isinstance(a, str) and bool(a) and a == b
+        if field.endswith("sha256"):
+            valid = valid and len(a) == 64 and all(c in "0123456789abcdef" for c in a)
+        if field in ("task_manifest_sha256", "fixture_sha256"):
+            valid = valid and a == current[field]
+        if not valid:
+            reasons.append(field + " missing or mismatched; comparability limited")
     for field in ("runtime_version", "model"):
         if not lan.get(field) or lan.get(field) != vpn.get(field):
             reasons.append(field + " unknown or mismatched")
