@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -383,6 +383,7 @@ namespace CompanyNetwork
         internal readonly string ProfilePath;
         internal readonly string StatePath;
         internal InstallState State;
+        internal Action CheckCancelled = delegate {};
 
         internal UserInstall(AppPayload payload)
         {
@@ -505,7 +506,7 @@ namespace CompanyNetwork
             {
                 if (connect && State != null)
                 {
-                    try { Disconnect(); } catch { }
+                    try { Disconnect(); } catch (Exception cleanup) { throw new AppProblem("cleanup_failed", "连接未完成，且未能确认断开：" + Program.Explain(cleanup).Message); }
                 }
                 throw;
             }
@@ -514,8 +515,10 @@ namespace CompanyNetwork
         private string PrepareCore(bool connect, bool allowElevation, Action<string> progress)
         {
             Payload.RequireActive();
+            CheckCancelled();
             progress("正在准备网络组件，请稍候…");
             Engine engine = Engine.Ensure(Payload, allowElevation);
+            CheckCancelled();
             bool exists = engine.AccountExists(Account);
             if (exists && (State == null || !State.AccountOwned))
                 throw new AppProblem("account_conflict", "发现同名连接，应用没有修改它。请联系管理员确认。");
@@ -556,7 +559,7 @@ namespace CompanyNetwork
             {
                 BootstrapCore.ConnectLayers(delegate {
                     progress("正在连接公司网络，请稍候…");
-                    Connect(engine, TransportAccount);
+                    CheckCancelled(); Connect(engine, TransportAccount);
                 }, delegate {
                     return WaitUntil(delegate {
                         bool established = IsEstablished(engine, TransportAccount);
@@ -569,16 +572,14 @@ namespace CompanyNetwork
                     // The resident official helper owns the personal credential dialog.
                     // Profiles are already imported; the separate manager window is unnecessary.
                     engine.EnsureUiHelper();
-                    Connect(engine, Account);
+                    CheckCancelled(); Connect(engine, Account);
                 }, delegate {
                     return WaitUntil(delegate { return IsEstablished(engine, Account) && HasInnerRoute(); }, 180);
                 });
             }
             catch
             {
-                try { DisconnectOwned(engine, Account); } catch { }
-                try { DisconnectOwned(engine, TransportAccount); } catch { }
-                throw new AppProblem("connection_incomplete", "连接未完成或登录已取消，已断开。请重新连接并完成个人账号登录。");
+                throw new AppProblem("connection_incomplete", "连接未完成或登录已取消。正在检查并回收连接，请重新连接并完成个人账号登录。");
             }
             return "公司网络已连接，可以打开 GPT。";
         }
@@ -607,10 +608,10 @@ namespace CompanyNetwork
             return BootstrapCore.Established(result.ExitCode, result.Output);
         }
 
-        private static bool WaitUntil(Func<bool> condition, int seconds)
+        private bool WaitUntil(Func<bool> condition, int seconds)
         {
             DateTime deadline = DateTime.UtcNow.AddSeconds(seconds);
-            do { if (condition()) return true; Thread.Sleep(750); } while (DateTime.UtcNow < deadline);
+            do { CheckCancelled(); if (condition()) { CheckCancelled(); return true; } Thread.Sleep(750); } while (DateTime.UtcNow < deadline);
             return false;
         }
 
@@ -668,6 +669,30 @@ namespace CompanyNetwork
                 throw new AppProblem("disconnect_failed", "未能确认连接已断开，请在公司网络窗口检查。");
         }
 
+        internal ConnectionSnapshot Snapshot()
+        {
+            ReloadState();
+            ConnectionSnapshot snapshot = new ConnectionSnapshot();
+            if (State == null || (!State.AccountOwned && !State.TransportOwned)) return snapshot;
+            Engine engine = Engine.Find();
+            if (engine == null || Engine.ServiceStatus() == "Stopped" || Engine.ServiceStatus() == "NotInstalled") return snapshot;
+            engine.RequireRpc();
+            snapshot.Outer = State.TransportOwned && SessionActive(engine, TransportAccount);
+            snapshot.Inner = State.AccountOwned && SessionActive(engine, Account);
+            snapshot.Route = snapshot.Inner && HasInnerRoute();
+            snapshot.SessionsReady = snapshot.Inner && snapshot.Outer && IsEstablished(engine, Account) && IsEstablished(engine, TransportAccount);
+            return snapshot;
+        }
+
+        private static bool SessionActive(Engine engine, string account)
+        {
+            CommandResult result = engine.Command("AccountStatusGet " + Processes.Quote(account), 10000);
+            if (result.ExitCode == 36 || result.ExitCode == 37) return false;
+            if (result.ExitCode != 0) throw new AppProblem("status_unavailable", "无法读取实际会话，尚未确认断开，请重试。");
+            // AccountStatusGet succeeds for connecting/reconnecting sessions too.
+            return true;
+        }
+
         internal string Disconnect()
         {
             if (State == null || (!State.AccountOwned && !State.TransportOwned)) return "当前用户尚未配置连接。";
@@ -677,6 +702,7 @@ namespace CompanyNetwork
             try { if (State.AccountOwned) DisconnectOwned(engine, Account); } catch (Exception e) { failure = e; }
             try { if (State.TransportOwned) DisconnectOwned(engine, TransportAccount); } catch (Exception e) { failure = e; }
             if (failure != null) throw failure;
+            if (Snapshot().Kind != "disconnected") throw new AppProblem("disconnect_unconfirmed", "尚未确认两层连接均已结束，请重试断开。");
             return "连接已断开。";
         }
 
@@ -738,68 +764,54 @@ namespace CompanyNetwork
             return "已打开 GPT。";
         }
 
-        private static readonly string[] ShortcutNames = new string[] {
-            "公司网络-连接.lnk", "公司网络-断开.lnk", "公司网络-GPT.lnk"
-        };
-
         private void CreateShortcuts()
         {
-            Type type = Type.GetTypeFromProgID("WScript.Shell");
-            if (type == null) throw new AppProblem("shortcuts_unavailable", "系统暂时无法创建快捷方式，可直接打开本应用使用。");
-            object shell = Activator.CreateInstance(type);
-            try
-            {
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                string[] arguments = new string[] { "--connect", "--disconnect", "--gpt" };
-                for (int i = 0; i < ShortcutNames.Length; i++)
-                {
-                    string path = Path.Combine(desktop, ShortcutNames[i]);
-                    object shortcut = type.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path });
-                    try
-                    {
-                        Type shortcutType = shortcut.GetType();
-                        if (File.Exists(path))
-                        {
-                            string target = (string)shortcutType.InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null);
-                            if (!String.Equals(target, Launcher, StringComparison.OrdinalIgnoreCase))
-                                throw new AppProblem("shortcut_conflict", "桌面存在同名快捷方式，请联系管理员确认。");
-                        }
-                        shortcutType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { Launcher });
-                        shortcutType.InvokeMember("Arguments", BindingFlags.SetProperty, null, shortcut, new object[] { arguments[i] });
-                        shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { DirectoryPath });
-                        shortcutType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "公司网络" });
-                        shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
-                    }
-                    finally { Marshal.FinalReleaseComObject(shortcut); }
-                }
-            }
-            finally { Marshal.FinalReleaseComObject(shell); }
+            UpdateShortcuts(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Launcher, DirectoryPath, State != null && State.OwnerSid == Sid, false);
         }
 
         private void RemoveShortcuts()
         {
+            UpdateShortcuts(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Launcher, DirectoryPath, State != null && State.OwnerSid == Sid, true);
+        }
+
+        internal static void UpdateShortcuts(string desktop, string launcher, string directory, bool installationOwned, bool remove)
+        {
+            if (!installationOwned) throw new AppProblem("shortcut_ownership_unknown", "无法确认安装归属，未修改桌面入口。");
             Type type = Type.GetTypeFromProgID("WScript.Shell");
-            if (type == null) return;
+            if (type == null) throw new AppProblem("shortcuts_unavailable", "系统暂时无法创建快捷方式，可直接打开本应用使用。");
+            string[] names = { "公司网络.lnk", "公司网络-连接.lnk", "公司网络-断开.lnk", "公司网络-GPT.lnk" };
+            string[] args = { "--ui", "--connect", "--disconnect", "--gpt" };
+            bool conflict = false;
             object shell = Activator.CreateInstance(type);
             try
             {
-                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                foreach (string name in ShortcutNames)
+                // Preflight the unified entry before deleting any legacy entry.
+                for (int i = 0; i < names.Length; i++)
                 {
-                    string path = Path.Combine(desktop, name);
-                    if (!File.Exists(path)) continue;
+                    string path = Path.Combine(desktop, names[i]);
                     object shortcut = type.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path });
-                    bool owned;
                     try
                     {
-                        string target = (string)shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null);
-                        owned = String.Equals(target, Launcher, StringComparison.OrdinalIgnoreCase);
+                        Type t = shortcut.GetType();
+                        bool exists = File.Exists(path);
+                        bool owned = !exists ||
+                            String.Equals((string)t.InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null), launcher, StringComparison.OrdinalIgnoreCase) &&
+                            String.Equals(((string)t.InvokeMember("Arguments", BindingFlags.GetProperty, null, shortcut, null)).Trim(), args[i], StringComparison.Ordinal) &&
+                            String.Equals((string)t.InvokeMember("WorkingDirectory", BindingFlags.GetProperty, null, shortcut, null), directory, StringComparison.OrdinalIgnoreCase);
+                        if (!owned) { conflict = true; if(i == 0 && !remove) throw new AppProblem("shortcut_conflict", "桌面“公司网络”入口归属不明，已保留，请联系管理员确认。"); continue; }
+                        if(remove || i > 0) { if(exists) File.Delete(path); continue; }
+                        t.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { launcher });
+                        t.InvokeMember("Arguments", BindingFlags.SetProperty, null, shortcut, new object[] { "--ui" });
+                        t.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { directory });
+                        t.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { launcher + ",0" });
+                        t.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "公司网络：连接、断开与 GPT" });
+                        t.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
                     }
                     finally { Marshal.FinalReleaseComObject(shortcut); }
-                    if (owned) File.Delete(path);
                 }
             }
             finally { Marshal.FinalReleaseComObject(shell); }
+            if(conflict && !remove) throw new AppProblem("shortcut_conflict", "已创建统一入口；归属不明的同名旧入口已保留，请联系管理员确认。");
         }
     }
 }

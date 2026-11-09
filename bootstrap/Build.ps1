@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$PayloadZipPath,
     [string]$OutputPath = (Join-Path $PSScriptRoot 'CompanyNetwork.exe')
 )
@@ -10,13 +10,14 @@ $output = [System.IO.Path]::GetFullPath($OutputPath)
 $arguments = @(
     '/nologo', '/langversion:5', '/target:winexe', '/platform:x64', '/optimize+',
     ('/out:' + $output),
+    ('/win32icon:' + (Join-Path $PSScriptRoot 'CompanyNetwork.ico')),
     ('/win32manifest:' + (Join-Path $PSScriptRoot 'CompanyNetwork.manifest')),
     ('/resource:' + $payload + ',company.payload.zip'),
     '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
     '/reference:System.ServiceProcess.dll', '/reference:System.Web.Extensions.dll',
     '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll',
     (Join-Path $PSScriptRoot 'BootstrapCore.cs'), (Join-Path $PSScriptRoot 'Payload.cs'),
-    (Join-Path $PSScriptRoot 'WindowsIntegration.cs'), (Join-Path $PSScriptRoot 'Program.cs')
+    (Join-Path $PSScriptRoot 'WindowsIntegration.cs'), (Join-Path $PSScriptRoot 'Program.cs'), (Join-Path $PSScriptRoot 'OperationController.cs')
 )
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw ('编译失败，退出码 ' + $LASTEXITCODE) }
