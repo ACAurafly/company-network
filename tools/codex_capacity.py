@@ -111,8 +111,15 @@ def assess(evidence, reports, now):
                     reasons.append("client_completion_or_quality_failed")
                 if turn.get("error_count") != 0 or turn.get("retry_count") != 0 or turn.get("anomalies"):
                     reasons.append("client_errors_or_retries")
+                # Quality rejection and an explicit operator cancellation are
+                # distinct from an abnormal/missing stream completion. A final
+                # gateway 200 or empty classifier arrays cannot clear a fault.
+                stream_fault = (turn.get("status") != "cancelled" and (
+                    turn.get("status") != "completed" or turn.get("end_event") != "turn/completed"))
+                sample_fault = sample.get("status", "completed") not in ("completed", "not_accepted", "cancelled")
                 if phase in ("pilot_5", "pilot_2") and (
-                    any(turn.get("error_categories", {}).get(k, 0) for k in (
+                    stream_fault or sample_fault
+                    or any(turn.get("error_categories", {}).get(k, 0) for k in (
                         "unauthorized", "responseStreamConnectionFailed", "responseStreamDisconnected"))
                     or any(turn.get("http_statuses", {}).get(k, 0) for k in ("401", "403", "429"))
                 ):
@@ -141,6 +148,13 @@ def assess(evidence, reports, now):
     controlled = config_ok and counts["controlled_1"] >= 3 and counts["controlled_2"] >= 3
     # Any failed controlled group remains visible and prevents a clean verification.
     controlled = controlled and all(o["passed"] for o in outcomes if o["phase"] in ("controlled_1", "controlled_2"))
+    controlled_spans = {phase: [span for o in outcomes if o["phase"] == phase
+                               for span in o["spans"] if span is not None]
+                        for phase in ("controlled_1", "controlled_2")}
+    controlled_end = max((span[1] for spans in controlled_spans.values() for span in spans), default=None)
+    if controlled:
+        controlled = (max(span[1] for span in controlled_spans["controlled_1"])
+                      <= min(span[0] for span in controlled_spans["controlled_2"]))
     base_ok, free, base_reason = baseline(evidence.get("baseline", {}), now)
     if base_ok and instant(evidence["baseline"]["samples"][-1]["at"]) > captured:
         base_ok, base_reason = False, "slots_after_capture"
@@ -154,6 +168,8 @@ def assess(evidence, reports, now):
         pilot_ids.add(uid)
         start, end = instant(p["changed_at"]), instant(p["observed_until"])
         reasons = []
+        if controlled_end is None or controlled_end > start:
+            reasons.append("controlled_validation_must_precede_change")
         valid_base, pilot_free, why = baseline(p.get("baseline", {}), start)
         if not valid_base or pilot_free < 4:
             reasons.append(why or "insufficient_headroom")

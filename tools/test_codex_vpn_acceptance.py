@@ -4,6 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
+from unittest.mock import patch
+
+import codex_latency
 import unittest
 
 from codex_vpn_acceptance import compare, main, network_summary, observations
@@ -26,12 +31,73 @@ def fixture():
                 "route_ready": True, "certificate_pin_match": True, "vpn_entry_direct": True,
                 "workload_comparable": True, "difference_explained": True,
                 "stage_clock": "local_monotonic_duration", "stages_ms": {"nas_connect_ms": 3 if side == "company_lan" else 5}}
-        reports.append({"schema_version": 1, "runtime_version": "0.99.0", "model": "gpt-6.1-sol", "samples": rows})
+        reports.append({"schema_version": 2, "provenance": codex_latency.provenance(), "runtime_version": "0.99.0", "model": "gpt-6.1-sol", "samples": rows})
         evidence[side] = {"device_id": "device-a", "account_id": "account-a", "egress_id": "egress-a", "samples": observations_by_id}
     return reports[0], reports[1], evidence
 
 
 class AcceptanceTests(unittest.TestCase):
+    def test_current_producer_reports_flow_through_consumer_with_real_stream(self):
+        # Replace only external executable/version discovery. Real sampler main,
+        # sample, subprocess pipes, stream parser and report serialization run.
+        program = """
+import json,sys
+for line in sys.stdin:
+ d=json.loads(line)
+ method=d.get('method')
+ if method=='initialize':
+  print(json.dumps({'id':d['id'],'result':{}}),flush=True)
+ if method=='thread/start':
+  print(json.dumps({'id':d['id'],'result':{'thread':{'id':'thread-public'}}}),flush=True)
+ if method=='turn/start':
+  print(json.dumps({'id':d['id'],'result':{'turn':{'id':'turn-public'}}}),flush=True)
+  for method,extra in [('item/agentMessage/delta',{'delta':'CODEX_LATENCY_OK'}),('item/completed',{'item':{'type':'agentMessage','text':'CODEX_LATENCY_OK'}}),('turn/completed',{'turn':{'id':'turn-public','status':'completed'}})]:
+   print(json.dumps({'method':method,'params':{'threadId':'thread-public','turnId':'turn-public',**extra}}),flush=True)
+"""
+        real_popen = subprocess.Popen
+        def local_process(*args, **kwargs):
+            return real_popen([sys.executable, '-u', '-c', program], **kwargs)
+        reports, evidence = [], {}
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for side, label in (('company_lan', 'company-lan'), ('external_vpn', 'external-vpn')):
+                output = base / (side + '.json')
+                with patch('codex_latency.subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'codex 0.99.0')), patch('codex_latency.subprocess.Popen', side_effect=local_process):
+                    self.assertEqual(codex_latency.main(['--codex', 'offline-fixture', '--workdir', directory, '--output', str(output), '--smoke', '--efforts', 'max', '--pairs', '5', '--network', label]), 0)
+                report = json.loads(output.read_text(encoding='utf-8'))
+                reports.append(report)
+                _, _, template = fixture()
+                observation = copy.deepcopy(template[side])
+                observation['samples'] = {}
+                for row in report['samples']:
+                    item = copy.deepcopy(template[side]['samples'][side + '1'])
+                    item['captured_utc'] = row['started_utc']
+                    observation['samples'][row['sample_id']] = item
+                evidence[side] = observation
+        result = compare(*reports, evidence)
+        self.assertEqual(result['remote_business_status'], 'descriptive_screening_complete')
+        self.assertEqual(result['external_vpn']['correct_complete'], 5)
+        # Real producer metadata alone still cannot attest physical access.
+        self.assertEqual(compare(*reports)['remote_business_status'], 'not_accepted')
+        evidence['external_vpn']['samples'][reports[1]['samples'][0]['sample_id']]['captured_utc'] = '2000-01-01T00:00:00Z'
+        self.assertEqual(compare(*reports, evidence)['remote_business_status'], 'not_accepted')
+
+    def test_schema_and_manifest_gaps_do_not_claim_comparability(self):
+        for change in ('legacy', 'mixed', 'future', 'missing', 'manifest', 'fixture', 'source'):
+            with self.subTest(change=change):
+                lan, vpn, evidence = fixture()
+                if change == 'legacy':
+                    lan['schema_version'] = vpn['schema_version'] = 1
+                elif change in ('mixed', 'future'):
+                    vpn['schema_version'] = 1 if change == 'mixed' else 99
+                elif change == 'missing':
+                    vpn.pop('provenance')
+                else:
+                    vpn['provenance'][{'manifest': 'task_manifest_sha256', 'fixture': 'fixture_sha256', 'source': 'source_sha256'}[change]] = '0' * 64
+                result = compare(lan, vpn, evidence)
+                self.assertEqual(result['remote_business_status'], 'not_accepted')
+                self.assertTrue(all(p['vpn_minus_lan_ms'] is None for p in result['pairs']))
+
     def test_five_pairs_descriptive_only_and_three_stage_trigger(self):
         result = compare(*fixture())
         self.assertEqual(result["remote_business_status"], "descriptive_screening_complete")

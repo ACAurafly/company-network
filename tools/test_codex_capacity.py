@@ -49,7 +49,7 @@ def fixture():
 
     for phase in ("controlled_1", "controlled_2"):
         for n in range(3):
-            group(phase, n, NOW - 5000 + n * 30)
+            group(phase, n, NOW - 5000 + (200 if phase == "controlled_2" else 0) + n * 30)
     return e, report, group
 
 
@@ -116,6 +116,84 @@ class CapacityScenarios(unittest.TestCase):
         self.assertTrue(assess(e, [report], NOW)["pilot_verified"])
         e["pilots"][1]["changed_at"] = at(NOW - 3000)
         self.assertFalse(assess(e, [report], NOW)["pilot_verified"])
+
+    def test_controlled_validation_cannot_retroactively_admit_pilots(self):
+        for offset in (1001, 4500):
+            with self.subTest(offset=offset):
+                e, report = self.pilots()
+                for group in e['groups']:
+                    if group['phase'].startswith('controlled'):
+                        for request in group['requests']:
+                            for field in ('upstream_started_at', 'upstream_ended_at', 'user_wait_started_at', 'user_wait_ended_at'):
+                                if request[field] is not None:
+                                    request[field] = at(datetime.fromisoformat(request[field]).timestamp() + offset)
+                result = assess(e, [report], NOW)
+                self.assertFalse(result['pilot_verified'])
+                self.assertIn('controlled_validation_must_precede_change', result['pilots'][0]['reasons'])
+
+    def test_controlled_groups_after_both_observations_do_not_validate_pilots(self):
+        e, report = self.pilots()
+        for n, group in enumerate(e['groups'][:6]):
+            first = datetime.fromisoformat(group['requests'][0]['upstream_started_at']).timestamp()
+            shift = NOW - 180 + n * 25 - first
+            for request in group['requests']:
+                for field in ('upstream_started_at', 'upstream_ended_at', 'user_wait_started_at', 'user_wait_ended_at'):
+                    if request[field] is not None:
+                        request[field] = at(datetime.fromisoformat(request[field]).timestamp() + shift)
+        result = assess(e, [report], NOW)
+        self.assertTrue(result['controlled_verified'])
+        self.assertFalse(result['pilot_verified'])
+        self.assertTrue(all('controlled_validation_must_precede_change' in p['reasons'] for p in result['pilots']))
+
+    def test_user_two_cannot_be_validated_before_user_five(self):
+        e, report = self.pilots()
+        e['pilots'].reverse()
+        result = assess(e, [report], NOW)
+        self.assertFalse(result['pilot_verified'])
+        self.assertIn('user5_must_pass_before_user2', result['pilots'][0]['reasons'])
+
+    def test_controlled_limit_one_must_finish_before_limit_two(self):
+        e, report, _ = fixture()
+        for group in e['groups']:
+            if group['phase'] == 'controlled_2':
+                for request in group['requests']:
+                    for field in ('upstream_started_at', 'upstream_ended_at'):
+                        request[field] = at(datetime.fromisoformat(request[field]).timestamp() - 200)
+        self.assertFalse(assess(e, [report], NOW)['controlled_verified'])
+
+    def test_pilot_stream_fault_rolls_back_even_without_error_labels(self):
+        for fault in ('timeout', 'disconnected', 'failed', 'missing_terminal', 'sample_timeout'):
+            with self.subTest(fault=fault):
+                e, report = self.pilots()
+                sample = report['samples'][-1]
+                turn = sample['turns'][0]
+                sample['accepted'] = turn['accepted'] = False
+                if fault == 'sample_timeout':
+                    sample['status'] = 'timeout'
+                elif fault == 'missing_terminal':
+                    turn['end_event'] = None
+                else:
+                    turn.update(status=fault, end_event=None)
+                result = assess(e, [report], NOW)
+                self.assertTrue(result['rollback_required'])
+                self.assertEqual(result['rollback_pending_users'], ['2'])
+                self.assertFalse(result['pilot_verified'])
+                e['pilots'][1]['rollback_completed'] = True
+                result = assess(e, [report], NOW)
+                self.assertTrue(result['rollback_required'])
+                self.assertEqual(result['rollback_pending_users'], [])
+
+    def test_quality_failure_and_explicit_cancellation_are_not_stream_faults(self):
+        for status in ('completed', 'cancelled'):
+            e, report = self.pilots()
+            sample = report['samples'][-1]
+            sample['accepted'] = False
+            sample['status'] = 'not_accepted' if status == 'completed' else status
+            sample['turns'][0].update(accepted=False, quality_pass=False, status=status,
+                                      end_event='turn/completed' if status == 'completed' else None)
+            result = assess(e, [report], NOW)
+            self.assertFalse(result['pilot_verified'])
+            self.assertFalse(result['rollback_required'])
 
     def test_short_observation_and_unrepresentative_workload_do_not_pass(self):
         for change in (lambda e: e["pilots"][0].update(observed_until=at(NOW - 2300)),
