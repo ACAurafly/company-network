@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 namespace CompanyNetwork {
  internal sealed class ConnectionSnapshot {
@@ -29,7 +29,14 @@ namespace CompanyNetwork {
     throw new AppProblem("invalid_action", "无法识别此操作。");
    } finally { user.CheckCancelled = delegate {}; }
   }, user.Snapshot) {}
-  internal ConnectionSnapshot Read() { return read(); }
+  internal ConnectionSnapshot Read() {
+   var elapsed = System.Diagnostics.Stopwatch.StartNew();
+   try {
+    ConnectionSnapshot state = read();
+    Diagnostics.Record("snapshot", new { state = state.Kind, outer = state.Outer, inner = state.Inner, route = state.Route, sessionsReady = state.SessionsReady, readElapsedMs = elapsed.ElapsedMilliseconds });
+    return state;
+   } catch(Exception error) { Diagnostics.Failure("read", error); throw; }
+  }
   internal void RequestStop() { stop.Set(); }
   internal string Execute(string action, Action<string> progress) {
    bool stopping = action == "--disconnect" || action == "--remove";
@@ -41,12 +48,17 @@ namespace CompanyNetwork {
     Action check = delegate { if(stop.WaitOne(0)) throw new AppProblem("connection_cancelled", "连接已取消。"); };
     if(!stopping && action != "--gpt") check();
     Emit(stopping ? "disconnecting" : action == "--connect" ? "connecting" : "working");
-    string result = operate(action, progress, stopping ? (Action)delegate {} : check);
+    string result = operate(action, delegate(string message) {
+     string phase = message.Contains("准备网络组件") ? "components" : message.Contains("保存个人配置") ? "configuration" : message.Contains("连接公司网络") ? "outer" : message.Contains("登录窗口") ? "inner_authentication_and_routes" : "operation";
+     Diagnostics.Record("phase", phase);
+     progress(message);
+    }, stopping ? (Action)delegate {} : check);
     if(action == "--connect") check();
     if(stopping && Read().Kind != "disconnected") throw new AppProblem("disconnect_unconfirmed", "尚未确认两层会话均已结束，请重试断开。");
     if(stopping) stop.Reset();
     Emit(Read().Kind); return result;
-   } catch {
+   } catch(Exception failure) {
+    Diagnostics.Failure(action, failure);
     if(owned && action == "--connect") {
      try { operate("--disconnect", progress, delegate {}); if(Read().Kind != "disconnected") throw new AppProblem("cleanup_failed", "未能确认取消后的两层会话已结束，请重试断开。"); }
      catch(Exception e) { Emit("failed"); throw new AppProblem("cleanup_failed", "连接未完成，且断开尚未确认：" + Program.Explain(e).Message); }
@@ -55,7 +67,7 @@ namespace CompanyNetwork {
    }
    finally { if(owned) gate.ReleaseMutex(); }
   }
-  void Emit(string state) { Action<string> listener = Transition; if(listener != null) listener(state); }
+  void Emit(string state) { Diagnostics.Record("transition", state); Action<string> listener = Transition; if(listener != null) listener(state); }
   public void Dispose() { gate.Dispose(); stop.Dispose(); }
  }
 }

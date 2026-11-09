@@ -74,7 +74,7 @@ namespace CompanyNetwork
                     using (UiInstance instance = new UiInstance(user.Sid))
                     {
                         if (!instance.IsFirst) { instance.Activate(); return 0; }
-                        using (MainForm form = new MainForm(user, instance)) Application.Run(form);
+                        using (ClientHost host = new ClientHost(user, instance)) Application.Run(host);
                     }
                     return 0;
                 }
@@ -137,92 +137,219 @@ namespace CompanyNetwork
         public void Dispose() { ShowRequest.Dispose(); if(IsFirst) mutex.ReleaseMutex(); mutex.Dispose(); }
     }
 
-    internal sealed class MainForm : Form
+    // The application, tray, polling and operations outlive any individual window.
+    internal sealed class ClientHost : ApplicationContext
     {
-        readonly UserInstall user;
         readonly OperationController controller;
+        readonly Func<ConnectionSnapshot> read;
         readonly UiInstance instance;
-        readonly Label status;
-        readonly Button connect, disconnect, remove;
         readonly NotifyIcon tray;
         readonly System.Windows.Forms.Timer timer;
-        bool busy, polling, exiting;
-        string facts = "unknown";
+        readonly Control dispatcher = new Control();
+        bool prepared;
+        bool busy, polling, stopping;
+        string facts = "unknown", statusText = "正在读取实际连接状态…", lastFailure = "";
         DateTime started;
-        string operationMessage = "";
-        string lastFailure = "";
-        internal MainForm(UserInstall installation, UiInstance windowInstance)
+        MainForm window;
+        internal MainForm Window { get { return window; } }
+
+        internal ClientHost(UserInstall user, UiInstance singleInstance)
+            : this(new OperationController(user), delegate {
+                using (var reader = new OperationController(new UserInstall(user.Payload))) return reader.Read();
+            }, singleInstance, user.State != null && user.State.ConfigurationVersion >= 11 && Engine.Find() != null, true) { }
+
+        internal ClientHost(OperationController operation, Func<ConnectionSnapshot> snapshot,
+            UiInstance singleInstance, bool alreadyPrepared, bool showWindow)
         {
-            user = installation; instance = windowInstance; controller = new OperationController(user);
-            Text = "公司网络 · 1.3"; Font = new Font("Microsoft YaHei UI", 10F);
-            Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
-            StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false; ClientSize = new Size(540, 310);
-            Controls.Add(new Label { Text = "公司网络", Font = new Font(Font.FontFamily,18F,FontStyle.Bold), Location = new Point(26,23), AutoSize = true });
-            Controls.Add(new Label { Text = "使用个人账号连接；收起后可从桌面或托盘找回", Location = new Point(28,68), AutoSize = true });
-            connect = new Button { Text = "安装并连接", Location = new Point(29,106), Size = new Size(190,43) };
-            disconnect = new Button { Text = "断开 / 取消", Location = new Point(230,106), Size = new Size(130,43) };
-            Button gpt = new Button { Text = "打开 GPT", Location = new Point(372,106), Size = new Size(135,43) };
-            status = new Label { Text = "正在读取实际连接状态…", Location = new Point(28,168), Size = new Size(480,70) };
-            remove = new Button { Text = "移除此配置", Location = new Point(372,257), Size = new Size(135,32) };
-            Controls.AddRange(new Control[] { connect, disconnect, gpt, status, remove });
+            controller = operation;
+            read = snapshot;
+            instance = singleInstance;
+            prepared = alreadyPrepared;
+            dispatcher.CreateControl();
             ContextMenuStrip menu = new ContextMenuStrip();
             menu.Items.Add("显示窗口", null, delegate { RestoreWindow(); });
             menu.Items.Add("断开 / 取消连接", null, async delegate { await Stop(false); });
             menu.Items.Add("打开 GPT", null, async delegate { await Perform("--gpt"); });
             menu.Items.Add("断开并退出", null, async delegate { await Stop(true); });
-            tray = new NotifyIcon { Icon = Icon, Text = "公司网络：正在读取状态", Visible = true, ContextMenuStrip = menu };
+            tray = new NotifyIcon { Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location),
+                Text = "公司网络：正在读取状态", Visible = showWindow, ContextMenuStrip = menu };
             tray.DoubleClick += delegate { RestoreWindow(); };
-            connect.Click += async delegate { await Perform("--connect"); };
-            disconnect.Click += async delegate { await Stop(false); };
-            gpt.Click += async delegate { await Perform("--gpt"); };
-            remove.Click += async delegate { if(MessageBox.Show(this,"移除本应用拥有的个人配置？","公司网络",MessageBoxButtons.OKCancel) == DialogResult.OK) await Perform("--remove"); };
-            Resize += delegate { if(WindowState == FormWindowState.Minimized) Hide(); };
-            FormClosing += delegate(object sender, FormClosingEventArgs e) {
-                if(exiting) return;
-                if(busy || facts != "disconnected") {
-                    e.Cancel = true; Hide(); tray.ShowBalloonTip(5000,"公司网络仍在运行","关窗仅收至托盘。需要结束访问时，请选择“断开并退出”；桌面入口可以找回窗口。",ToolTipIcon.Info);
-                }
-            };
             timer = new System.Windows.Forms.Timer { Interval = 1000 };
             timer.Tick += async delegate {
-                if(instance.ShowRequest.WaitOne(0)) RestoreWindow();
-                if(busy) { if((DateTime.UtcNow-started).TotalSeconds >= 10) status.Text = operationMessage + "\n仍未完成，正在等待组件响应或回收；请保留此窗口。"; return; }
-                await RefreshState();
+                if (instance.ShowRequest.WaitOne(0)) RestoreWindow();
+                if (busy) {
+                    if ((DateTime.UtcNow - started).TotalSeconds >= 10)
+                        SetStatus("操作仍未完成，正在等待组件响应或回收。窗口可正常关闭，后台操作继续。" );
+                    return;
+                }
+                if (!stopping) await RefreshState();
             };
-            Shown += async delegate { timer.Start(); await RefreshState(); };
+            CreateWindow();
+            if (showWindow) { window.Show(); timer.Start(); }
         }
-        void RestoreWindow() { Show(); WindowState = FormWindowState.Normal; Activate(); }
-        async Task RefreshState() {
-            if(polling || busy) return; polling = true;
-            try { ConnectionSnapshot snapshot = await Task.Run(delegate { using(OperationController reader = new OperationController(new UserInstall(user.Payload))) return reader.Read(); }); facts = snapshot.Kind; status.Text = (lastFailure.Length == 0 ? "" : lastFailure + "\n") + snapshot.Message; tray.Text = "公司网络：" + (facts == "connected" ? "已连接" : facts == "disconnected" ? "已断开" : "恢复中"); }
-            catch(Exception e) { facts = "unknown"; status.Text = "状态未确认：" + Program.Explain(e).Message; tray.Text = "公司网络：状态未确认"; }
-            finally { polling = false; }
+
+        void CreateWindow()
+        {
+            window = new MainForm(this, prepared);
+            window.FormClosed += delegate(object sender, FormClosedEventArgs args) {
+                if (ReferenceEquals(window, sender)) window = null;
+            };
+            Render();
         }
-        async Task Stop(bool exit) {
+
+        internal void RestoreWindow()
+        {
+            OpenWindow(true);
+        }
+
+        internal MainForm OpenWindow(bool show)
+        {
+            if (window == null || window.IsDisposed) CreateWindow();
+            if (show) {
+                window.Show();
+                window.WindowState = FormWindowState.Normal;
+                window.Activate();
+            }
+            return window;
+        }
+
+        void SetStatus(string text) { statusText = text; Render(); }
+        void Render()
+        {
+            if (window == null || window.IsDisposed) return;
+            window.UpdateState(statusText, !busy && !stopping, prepared);
+        }
+
+        internal async Task RefreshState()
+        {
+            if (polling || busy) return;
+            polling = true;
+            try {
+                ConnectionSnapshot snapshot = await Task.Run(read);
+                facts = snapshot.Kind;
+                SetStatus((lastFailure.Length == 0 ? "" : lastFailure + "\n") + snapshot.Message);
+                tray.Text = "公司网络：" + (facts == "connected" ? "已连接" : facts == "disconnected" ? "已断开" : "恢复中");
+            } catch (Exception error) {
+                facts = "unknown";
+                SetStatus("状态未确认：" + Program.Explain(error).Message);
+                tray.Text = "公司网络：状态未确认";
+            } finally { polling = false; }
+        }
+
+        internal async Task Stop(bool exit)
+        {
+            if (stopping) return;
+            stopping = true;
             controller.RequestStop();
-            if(busy) { operationMessage = "已请求取消；正在等待当前操作回收连接。"; status.Text = operationMessage; while(busy) await Task.Delay(100); }
-            while(polling) await Task.Delay(100);
-            bool success = await Perform("--disconnect");
-            if(exit && success && facts == "disconnected") { exiting = true; Close(); }
+            SetStatus("已请求取消；正在等待当前操作回收连接。关闭窗口不会中断或强制断开。" );
+            try {
+                while (busy || polling) await Task.Delay(100);
+                bool success = await Perform("--disconnect");
+                if (exit && success && facts == "disconnected") {
+                    timer.Stop();
+                    if (window != null) window.Close();
+                    ExitThread();
+                } else if (exit) RestoreWindow();
+            } finally { stopping = false; Render(); }
         }
-        async Task<bool> Perform(string action) {
-            if(busy || polling) return false;
-            busy = true; lastFailure = ""; started = DateTime.UtcNow;
-            tray.Text = action == "--disconnect" ? "公司网络：正在断开" : action == "--connect" ? "公司网络：正在连接" : "公司网络：正在操作"; operationMessage = action == "--disconnect" ? "正在断开并确认两层会话…" : "正在执行，请稍候…";
-            status.Text = operationMessage; connect.Enabled = remove.Enabled = false;
+
+        internal async Task<bool> Perform(string action)
+        {
+            if (busy || polling) return false;
+            busy = true;
+            lastFailure = "";
+            started = DateTime.UtcNow;
+            tray.Text = action == "--disconnect" ? "公司网络：正在断开" : "公司网络：正在操作";
+            SetStatus(action == "--disconnect" ? "正在断开并确认两层会话…" : "正在执行，请稍候…");
             bool success = false;
             try {
-                string result = await Task.Run(delegate { return controller.Execute(action, delegate(string p) { if(!IsDisposed) BeginInvoke((Action)delegate { operationMessage = p; status.Text = p; }); }); });
-                status.Text = result; success = true;
-            } catch(Exception e) { operationMessage = Program.Explain(e).Message; lastFailure = operationMessage; status.Text = operationMessage; }
-            finally { busy = false; connect.Enabled = remove.Enabled = true; }
+                string result = await Task.Run(delegate {
+                    return controller.Execute(action, delegate(string progress) {
+                        if (!dispatcher.IsDisposed) dispatcher.BeginInvoke((Action)delegate { SetStatus(progress); });
+                    });
+                });
+                SetStatus(result);
+                if (action == "--connect" || action == "--prepare-only") prepared = true;
+                success = true;
+            } catch (Exception error) {
+                lastFailure = Program.Explain(error).Message;
+                SetStatus(lastFailure);
+            } finally { busy = false; Render(); }
             await RefreshState();
             return success;
         }
-        protected override void Dispose(bool disposing) {
-            if(disposing) { timer.Stop(); timer.Dispose(); tray.Visible = false; tray.Dispose(); controller.Dispose(); }
+
+        internal async Task ExportDiagnostics(MainForm owner, Button button)
+        {
+            using (var dialog = new SaveFileDialog { Filter = "JSON 诊断|*.json",
+                FileName = "company-network-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json" }) {
+                if (dialog.ShowDialog(owner) != DialogResult.OK) return;
+                button.Enabled = false;
+                try {
+                    string report = await Task.Run(delegate { return Diagnostics.Collect(read); });
+                    await Task.Run(delegate { File.WriteAllText(dialog.FileName, report, new UTF8Encoding(false)); });
+                    if (!owner.IsDisposed) MessageBox.Show(owner, "脱敏诊断已保存。VPN 就绪与业务验收分别标记。", "公司网络");
+                } catch (Exception error) {
+                    if (!owner.IsDisposed) MessageBox.Show(owner, "诊断文件未保存：" + Program.Explain(error).Message, "公司网络");
+                } finally { if (!button.IsDisposed) button.Enabled = true; }
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) {
+                timer.Stop();
+                timer.Dispose();
+                tray.Visible = false;
+                tray.Dispose();
+                if (window != null) window.Dispose();
+                dispatcher.Dispose();
+                controller.Dispose();
+            }
             base.Dispose(disposing);
+        }
+    }
+
+    internal sealed class MainForm : Form
+    {
+        readonly Label status;
+        readonly Button connect, remove;
+        internal MainForm(ClientHost host, bool prepared)
+        {
+            Text = "公司网络 · 1.3";
+            Font = new Font("Microsoft YaHei UI", 10F);
+            Icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            ClientSize = new Size(540, 310);
+            Controls.Add(new Label { Text = "公司网络", Font = new Font(Font.FontFamily, 18F, FontStyle.Bold), Location = new Point(26,23), AutoSize = true });
+            Controls.Add(new Label { Text = "关闭窗口不影响连接；可从桌面或托盘重新打开", Location = new Point(28,68), AutoSize = true });
+            connect = new Button { Text = prepared ? "连接" : "安装并连接", Location = new Point(29,106), Size = new Size(190,43) };
+            Button disconnect = new Button { Text = "断开 / 取消", Location = new Point(230,106), Size = new Size(130,43) };
+            Button gpt = new Button { Text = "打开 GPT", Location = new Point(372,106), Size = new Size(135,43) };
+            status = new Label { Location = new Point(28,168), Size = new Size(480,70) };
+            remove = new Button { Text = "移除此配置", Location = new Point(372,257), Size = new Size(135,32) };
+            Button diagnostics = new Button { Text = "导出诊断", Location = new Point(29,257), Size = new Size(130,32) };
+            Controls.AddRange(new Control[] { connect, disconnect, gpt, status, remove, diagnostics });
+            connect.Click += async delegate { await host.Perform("--connect"); };
+            disconnect.Click += async delegate { await host.Stop(false); };
+            gpt.Click += async delegate { await host.Perform("--gpt"); };
+            remove.Click += async delegate {
+                if (MessageBox.Show(this, "移除本应用拥有的个人配置？", "公司网络", MessageBoxButtons.OKCancel) == DialogResult.OK)
+                    await host.Perform("--remove");
+            };
+            diagnostics.Click += async delegate { await host.ExportDiagnostics(this, diagnostics); };
+            Resize += delegate { if (WindowState == FormWindowState.Minimized) Hide(); };
+            // No FormClosing interception: X/Alt+F4 close and dispose this window immediately.
+            // ClientHost retains the tray and operations and recreates a window on demand.
+        }
+
+        internal void UpdateState(string message, bool canStart, bool prepared)
+        {
+            status.Text = message;
+            connect.Text = prepared ? "连接" : "安装并连接";
+            connect.Enabled = remove.Enabled = canStart;
         }
     }
 }

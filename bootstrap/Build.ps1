@@ -17,7 +17,7 @@ $arguments = @(
     '/reference:System.ServiceProcess.dll', '/reference:System.Web.Extensions.dll',
     '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll',
     (Join-Path $PSScriptRoot 'BootstrapCore.cs'), (Join-Path $PSScriptRoot 'Payload.cs'),
-    (Join-Path $PSScriptRoot 'WindowsIntegration.cs'), (Join-Path $PSScriptRoot 'Program.cs'), (Join-Path $PSScriptRoot 'OperationController.cs')
+    (Join-Path $PSScriptRoot 'WindowsIntegration.cs'), (Join-Path $PSScriptRoot 'Program.cs'), (Join-Path $PSScriptRoot 'OperationController.cs'), (Join-Path $PSScriptRoot 'Diagnostics.cs')
 )
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw ('编译失败，退出码 ' + $LASTEXITCODE) }
