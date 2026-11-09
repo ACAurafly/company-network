@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from codex_latency import AppServer, SampleError, Turn, summarize
+from codex_latency import AppServer, SampleError, TASKS, Turn, provenance, summarize
 
 
 def notification(method, **params):
@@ -17,6 +17,16 @@ def notification(method, **params):
 
 
 class StreamTests(unittest.TestCase):
+    def test_manifest_identifies_changed_prompt_without_persisting_it(self):
+        baseline = provenance()
+        self.assertEqual(baseline, provenance())
+        with patch.dict(TASKS, {"fixed": [("SECRET_CHANGED_PROMPT", "OK", False)]}):
+            changed = provenance()
+        self.assertNotEqual(baseline["task_manifest_sha256"], changed["task_manifest_sha256"])
+        self.assertEqual(baseline["source_sha256"], changed["source_sha256"])
+        self.assertNotIn("SECRET_CHANGED_PROMPT", json.dumps(changed))
+        self.assertEqual(len(baseline["source_sha256"]), 64)
+
     def turn(self):
         t = Turn("thread-public", 7, 10)
         t.turn_id = "turn-public"
