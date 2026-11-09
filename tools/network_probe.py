@@ -77,7 +77,7 @@ def run_group(url, count, warm, curl="curl.exe", runner=subprocess.run):
             command += ["--next"] + curl_args(url, curl)[1:]
         rows = invoke(command, count + 1)
         return {"warmup": rows[0], "samples": rows[1:]}
-    return {"samples": [invoke(curl_args(url, curl) + ["--fresh-connect", "--no-sessionid"], 1)[0]
+    return {"samples": [invoke(curl_args(url, curl) + ["--no-sessionid"], 1)[0]
                         for _ in range(count)]}
 
 
@@ -115,11 +115,16 @@ def compare(old, new):
             enough = a["count"] >= 20 and b["count"] >= 20
             no_failures = a["failures"] == 0 and b["failures"] == 0 and a["warmup_ok"] and b["warmup_ok"]
             change = after / before - 1 if before and after is not None else None
-            comparable = old.get("measurement_policy") == new.get("measurement_policy")
+            numeric = enough and no_failures and change is not None and change <= (-.30 if kind == "cold" else .10)
+            # Policy text is a sampling recipe, not evidence of matching DNS/environment.
+            # This collector cannot observe Windows/upstream DNS cache hits.
+            comparable = False
             comparisons.append({"target": name, "group": kind, "comparable": comparable,
                                 "old": a, "new": b, "p95_change_fraction": change,
-                                "acceptance_pass": comparable and enough and no_failures and change is not None and
-                                change <= (-.30 if kind == "cold" else .10)})
+                                "numeric_threshold_met": numeric,
+                                "condition_status": "unknown",
+                                "condition_reason": "DNS cache hits and matching device/account/network/proxy conditions are not measured; overall acceptance requires external evidence",
+                                "acceptance_pass": False})
     return comparisons
 
 
@@ -141,6 +146,7 @@ def main():
         parser.error(str(error))
     result = {"schema_version": 1, "utc": dt.datetime.now(dt.timezone.utc).isoformat(),
               "local_time": dt.datetime.now().astimezone().isoformat(),
+              "condition_observation": {"dns_cache_hit": "unknown", "environment_match": "unknown"},
               "measurement_policy": {"dns_cache": "not flushed; OS and upstream cache uncontrolled; not DNS cold start",
                                      "cold": "independent curl processes; fresh TCP; TLS session cache disabled",
                                      "warm": "one curl process per target; one retained warmup; connection cache preserved",

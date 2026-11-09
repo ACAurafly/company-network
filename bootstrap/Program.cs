@@ -148,6 +148,9 @@ namespace CompanyNetwork
         readonly Control dispatcher = new Control();
         bool prepared;
         bool busy, polling, stopping;
+        long stateVersion;
+        internal string StatusText { get { return statusText; } }
+        internal string ConnectionKind { get { return facts; } }
         string facts = "unknown", statusText = "正在读取实际连接状态…", lastFailure = "";
         DateTime started;
         MainForm window;
@@ -177,9 +180,9 @@ namespace CompanyNetwork
             timer = new System.Windows.Forms.Timer { Interval = 1000 };
             timer.Tick += async delegate {
                 if (instance.ShowRequest.WaitOne(0)) RestoreWindow();
-                if (busy) {
+                if (busy || stopping) {
                     if ((DateTime.UtcNow - started).TotalSeconds >= 10)
-                        SetStatus("操作仍未完成，正在等待组件响应或回收。窗口可正常关闭，后台操作继续。" );
+                        SetStatus(stopping ? "断开仍未完成：正在等待当前连接操作或网络组件响应并确认两层会话结束。可保留后台稍候或重试，尚未确认断开。" : "操作仍未完成，正在等待组件响应或回收。窗口可正常关闭，后台操作继续。" );
                     return;
                 }
                 if (!stopping) await RefreshState();
@@ -223,27 +226,32 @@ namespace CompanyNetwork
         internal async Task RefreshState()
         {
             if (polling || busy) return;
+            long version = stateVersion;
             polling = true;
             try {
                 ConnectionSnapshot snapshot = await Task.Run(read);
+                if (version != stateVersion) return;
                 facts = snapshot.Kind;
                 SetStatus((lastFailure.Length == 0 ? "" : lastFailure + "\n") + snapshot.Message);
                 tray.Text = "公司网络：" + (facts == "connected" ? "已连接" : facts == "disconnected" ? "已断开" : "恢复中");
             } catch (Exception error) {
+                if (version != stateVersion) return;
                 facts = "unknown";
                 SetStatus("状态未确认：" + Program.Explain(error).Message);
                 tray.Text = "公司网络：状态未确认";
-            } finally { polling = false; }
+            } finally { if (version == stateVersion) polling = false; }
         }
 
         internal async Task Stop(bool exit)
         {
-            if (stopping) return;
+            if (stopping) { SetStatus("断开请求已在处理中，正在等待操作回收或组件确认；尚未确认断开。"); return; }
             stopping = true;
+            started = DateTime.UtcNow;
+            stateVersion++; polling = false;
             controller.RequestStop();
             SetStatus("已请求取消；正在等待当前操作回收连接。关闭窗口不会中断或强制断开。" );
             try {
-                while (busy || polling) await Task.Delay(100);
+                while (busy) await Task.Delay(100);
                 bool success = await Perform("--disconnect");
                 if (exit && success && facts == "disconnected") {
                     timer.Stop();
@@ -255,7 +263,11 @@ namespace CompanyNetwork
 
         internal async Task<bool> Perform(string action)
         {
-            if (busy || polling) return false;
+            if (busy || (stopping && action != "--disconnect")) {
+                SetStatus(stopping ? "断开正在处理中，请等待两层会话结束后再操作。" : "另一项操作正在处理中；如需停止连接，请选择“断开 / 取消”。");
+                return false;
+            }
+            stateVersion++; polling = false;
             busy = true;
             lastFailure = "";
             started = DateTime.UtcNow;

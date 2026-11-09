@@ -22,3 +22,14 @@
 - 网络工具单元测试 8 项通过，覆盖冷/热进程与缓存边界、失败保留、URL限制、候选幂等、冲突、原配置及hash保护。具体用法和未验收业务边界见 tools/README.md。
 
 这些检查不替代受影响实机的鼠标非客户端 X、托盘/桌面重开、飞书消息/授权文档与公司外网络验收；本分支未连接真实 VPN、修改生产网关或运行真实网络测速。
+
+
+## 审阅修正复检（2026-11-09）
+
+四项代码问题已修正：冷请求去掉系统 curl 不支持的参数；性能比较拆分数值门槛与未知条件；慢状态读取不阻塞控制操作且迟到快照丢弃；诊断阶段以显式标识上报。
+
+- Core 19、Adapter 5、Lifecycle 16、Diagnostics 36、Python 工具 10 项通过。Diagnostics 新增阻塞旧查询时断开先完成、旧已连接结果迟到不覆盖断开、竞争操作反馈及中文展示不影响阶段的检查，原窗口 X 释放与后台重建覆盖继续通过。
+- Python 的实际系统 curl 参数兼容回归先复现原参数 exit 2，去掉参数后冷/热生成命令均通过；该回归仅追加 `--version`，不发请求。合成每侧 20 样本、数值达标而 DNS/环境未知时，仍明确未验收。
+- 使用原真实 payload 构建 `build/CompanyNetwork.exe` 成功（ignored，34,442,752 字节）；本轮未运行真实网络请求、VPN、生产网关或桌面迁移。
+
+CLI 参数、退出码与 Execute/Prepare 方法签名保持兼容；新增 UserInstall.ReportPhase 显式阶段回调和探测 JSON 的 numeric_threshold_met、condition_status、condition_reason、condition_observation。当前采样器不能测 Windows DNS 命中或验证同环境，整体性能 acceptance_pass 保持 false，需另附可核实现场证据。不可中断组件仍需等待返回，超过 10 秒显示等待组件/回收的原因并保留控制窗口入口。生产网关候选未由本分支重载，现场业务问题继续待验收。

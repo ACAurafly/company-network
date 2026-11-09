@@ -499,6 +499,8 @@ namespace CompanyNetwork
             }
         }
 
+        internal Action<string> ReportPhase = delegate {};
+
         internal string Prepare(bool connect, bool allowElevation, Action<string> progress)
         {
             try { return PrepareCore(connect, allowElevation, progress); }
@@ -516,6 +518,7 @@ namespace CompanyNetwork
         {
             Payload.RequireActive();
             CheckCancelled();
+            ReportPhase("components");
             progress("正在准备网络组件，请稍候…");
             Engine engine = Engine.Ensure(Payload, allowElevation);
             CheckCancelled();
@@ -525,6 +528,7 @@ namespace CompanyNetwork
             bool transportExists = engine.AccountExists(TransportAccount);
             if (transportExists && (State == null || !State.TransportOwned))
                 throw new AppProblem("account_conflict", "发现同名连接，请联系管理员确认。");
+            ReportPhase("configuration");
             progress("正在保存个人配置…");
             SaveFiles();
             if (BootstrapCore.NeedsCompanyCa(Payload.Gpt)) EnsureCa();
@@ -558,6 +562,7 @@ namespace CompanyNetwork
             try
             {
                 BootstrapCore.ConnectLayers(delegate {
+                    ReportPhase("outer");
                     progress("正在连接公司网络，请稍候…");
                     CheckCancelled(); Connect(engine, TransportAccount);
                 }, delegate {
@@ -567,6 +572,7 @@ namespace CompanyNetwork
                         return BootstrapCore.TransportReady(established, route, route && TcpReady("10.253.60.1", 443));
                     }, 60);
                 }, delegate {
+                    ReportPhase("inner_authentication_and_routes");
                     progress("请在登录窗口输入管理员分配的个人账号…");
                     // Do not reimport: preserve the employee's saved identity and password.
                     // The resident official helper owns the personal credential dialog.

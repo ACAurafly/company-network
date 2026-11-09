@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -26,7 +27,7 @@ class ProbeTests(unittest.TestCase):
         commands = []
         cold = probe.run_group(probe.GOOGLE, 3, False, runner=self.runner(commands))
         self.assertEqual(len(commands), 3)
-        self.assertTrue(all("--fresh-connect" in command and "--no-sessionid" in command for command in commands))
+        self.assertTrue(all("--fresh-connect" not in command and "--no-sessionid" in command for command in commands))
         commands.clear()
         warm = probe.run_group(probe.GOOGLE, 3, True, runner=self.runner(commands))
         self.assertEqual(len(commands), 1)
@@ -34,6 +35,29 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(len(warm["samples"]), 3)
         self.assertTrue(all(row["tls_s"] is None and row["https_ready_s"] is None for row in warm["samples"]))
         self.assertNotIn("secret", json.dumps([cold, warm]))
+
+    def test_actual_system_curl_accepts_generated_commands_without_network(self):
+        curl = shutil.which("curl.exe") or shutil.which("curl")
+        self.assertIsNotNone(curl, "system curl is required for parameter compatibility")
+        def version_only(command, **kwargs):
+            result = subprocess.run(command + ["--version"], **kwargs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result
+        probe.run_group(probe.GOOGLE, 2, False, curl=curl, runner=version_only)
+        probe.run_group(probe.GOOGLE, 2, True, curl=curl, runner=version_only)
+
+    def test_numeric_improvement_with_unknown_conditions_cannot_pass_acceptance(self):
+        def report(seconds):
+            row = probe.sample({"exitcode": 0, "http_code": 204, "num_connects": 1,
+                                "time_appconnect": seconds, "time_starttransfer": seconds})
+            return {"measurement_policy": {"dns_cache": "uncontrolled"},
+                    "targets": {"google204": {"url": probe.GOOGLE,
+                        "cold": {"samples": [row] * 20}, "warm": {"samples": [row] * 20}}}}
+        for result in probe.compare(report(1), report(.5)):
+            self.assertTrue(result["numeric_threshold_met"])
+            self.assertFalse(result["comparable"])
+            self.assertFalse(result["acceptance_pass"])
+            self.assertEqual(result["condition_status"], "unknown")
 
     def test_failure_is_retained_and_blocks_speed_acceptance(self):
         good = probe.sample({"exitcode": 0, "http_code": 204, "num_connects": 1, "time_appconnect": 1})

@@ -15,13 +15,13 @@ python -m unittest discover -s tools -p test_network_tools.py -v
 
 每个固定目标默认 20 次冷请求、20 次热请求。Google 固定为 `https://www.google.com/generate_204`；飞书只允许用户提供的 HTTPS 根路径，不接受用户名、密码、查询、片段或文档路径。使用相同租户、设备、账号、网络、代理/TUN 状态及相近时段保存旧/新结果。`--count 2` 仅用于短样本验证，少于 20 的组不通过性能门槛。
 
-冷请求分别启动 curl 进程，使用 fresh-connect 和 no-sessionid；热请求在同一个 curl 进程内先预热，再通过 `--next` 保留连接缓存。每次传输记录 `num_connects`、local_ip、remote_ip 和连接复用事实。实际复用连接的 DNS、TCP、TLS、HTTPS 就绪时间为 null，热请求比较发起到首字节的耗时。OS 和上游 DNS 缓存未清理、命中状态未控制，因此不能称为 DNS 冷启动。
+冷请求分别启动 curl 进程，独立进程本身保证新 TCP 连接，使用 `--no-sessionid` 禁用该进程 TLS 会话缓存；热请求在同一个 curl 进程内先预热，再通过 `--next` 保留连接缓存。每次传输记录 `num_connects`、local_ip、remote_ip 和连接复用事实。实际复用连接的 DNS、TCP、TLS、HTTPS 就绪时间为 null，热请求比较发起到首字节的耗时。OS 和上游 DNS 缓存未清理；工具不能测得 Windows DNS 缓存命中，`condition_observation` 诚实标为 unknown，因此不能称为 DNS 冷启动。
 
 DNS、TCP、TLS 分段来自 curl 累积时间之差；HTTPS 就绪是 time_appconnect，首字节是 time_starttransfer。输出保留每次失败、curl 原生退出码、HTTP 状态、总耗时。自动重试明确关闭（retry_count=0）；失败不会被悄悄重试后用最后一次成功覆盖。缺失输出、超时或无法启动也保留占位失败样本。失败样本中的阶段零值不代表阶段已完成，以 timing_valid 为准。分位数列明有效测量数，保留完整失败率；任一失败均阻止性能门槛通过。
 
-比较按每目标、每冷热组报告。冷 HTTPS 就绪 p95 降低至少 30%、热首字节 p95 劣化不超过 10%、两侧每组至少 20 样本且全部成功，才满足工具计算的数值门槛；同环境和缓存条件仍须人工核实。Google 204 或飞书根路径 302 仅表示这些网络请求结果，不能替代飞书登录、消息同步或授权文档及其图片加载验收。
+比较按每目标、每冷热组报告。冷 HTTPS 就绪 p95 降低至少 30%、热首字节 p95 劣化不超过 10%、两侧每组至少 20 样本且全部成功，才满足 `numeric_threshold_met` 数值门槛。当前工具无法取得 DNS 命中及同设备/账号/网络/代理条件的匹配证据，故 `condition_status=unknown`、`comparable=false`、`acceptance_pass=false`，即使两侧策略文本相同且数值达标也保持未验收。没有“用户确认”开关；整体性能验收需另附可核实的受控条件证据，不能改写字段冒充工具已测得。Google 204 或飞书根路径 302 仅表示这些网络请求结果，不能替代飞书登录、消息同步或授权文档及其图片加载验收。
 
-不导出 curl 原始错误消息、请求/响应头、正文、有效跳转 URL。结果中的 URL 仅为以上预先验证的固定目标。首次生产取样前可检查 `curl.exe --version`：本工具依赖 `%{json}` write-out；不支持时会保留解析失败样本，不能将该组视为通过。
+不导出 curl 原始错误消息、请求/响应头、正文、有效跳转 URL。结果中的 URL 仅为以上预先验证的固定目标。自动测试会将实际生成的冷/热命令追加 `--version` 交给系统 curl，检查参数兼容且不发请求。首次生产取样前可检查 `curl.exe --version`：本工具依赖 `%{json}` write-out；不支持时会保留解析失败样本，不能将该组视为通过。
 
 ## 精确域名 DIRECT 候选
 

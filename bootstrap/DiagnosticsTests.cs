@@ -20,7 +20,7 @@ namespace CompanyNetwork
             bool connected = false;
             using (var controller = new OperationController("diagnostics-test-" + Guid.NewGuid().ToString("N"),
                 delegate(string action, Action<string> progress, Action check) {
-                    progress(privateValue);
+                    progress("正在准备网络组件 " + privateValue);
                     if (action == "--connect") connected = true;
                     if (action == "--disconnect") connected = false;
                     return privateValue;
@@ -36,6 +36,7 @@ namespace CompanyNetwork
                 Check(report.Contains("transition") && report.Contains("phase") && report.Contains("elapsedMs"), "monotonic operation journal exported");
                 Check(report.Contains("collector_failed") && report.Contains("123") && report.Contains("still collected"), "partial failure preserves other collectors and native code");
                 Check(!report.Contains("alice") && !report.Contains("password@") && !report.Contains("token=login") && !report.Contains("eyJ") && !report.Contains("Bearer private"), "application export redacts secrets");
+                Check(report.Contains("\"connect\"") && !report.Contains("\"components\""), "phase is explicit and independent of translated progress text");
                 Check(report.Contains("businessValidation") && report.Contains("未验收"), "business acceptance separated");
 
                 var started = new ManualResetEvent(false);
@@ -62,6 +63,7 @@ namespace CompanyNetwork
                 Check(!report.Contains("token=login") && !report.Contains("alice"), "failure messages never exported");
             }
             TestWindowLifetime();
+            TestBlockedPollAndManualStop();
             Console.WriteLine("Diagnostics: " + count + " checks passed.");
         }
 
@@ -91,6 +93,45 @@ namespace CompanyNetwork
             task.GetAwaiter().GetResult();
         }
 
+        static void TestBlockedPollAndManualStop()
+        {
+            var entered = new ManualResetEvent(false);
+            var release = new ManualResetEvent(false);
+            bool connected = true;
+            int disconnects = 0;
+            Func<ConnectionSnapshot> actual = delegate { return new ConnectionSnapshot {
+                Outer = connected, Inner = connected, Route = connected, SessionsReady = connected }; };
+            int readCount = 0;
+            Func<ConnectionSnapshot> blocked = delegate {
+                var snapshot = actual();
+                if (Interlocked.Increment(ref readCount) == 1) { entered.Set(); release.WaitOne(); }
+                return snapshot;
+            };
+            using (var instance = new UiInstance("poll-test-" + Guid.NewGuid().ToString("N")))
+            using (var operation = new OperationController("poll-operation-" + Guid.NewGuid().ToString("N"),
+                delegate(string action, Action<string> progress, Action check) {
+                    if (action == "--disconnect") { disconnects++; connected = false; }
+                    return "done";
+                }, actual))
+            using (var host = new ClientHost(operation, blocked, instance, true, false))
+            {
+                var polling = host.RefreshState();
+                Check(entered.WaitOne(2000), "blocked host state read entered");
+                // Stop must finish and publish its fresh state before the stale poll returns.
+                var stop = host.Stop(false);
+                var timeout = System.Diagnostics.Stopwatch.StartNew();
+                while (disconnects == 0 && timeout.ElapsedMilliseconds < 2000) {
+                    System.Windows.Forms.Application.DoEvents(); Thread.Sleep(10);
+                }
+                Check(disconnects == 1 && !polling.IsCompleted, "manual stop executes before blocked read returns");
+                Pump(stop);
+                Check(host.ConnectionKind == "disconnected", "manual stop confirms disconnected while old read remains blocked");
+                release.Set();
+                Pump(polling);
+                Check(host.ConnectionKind == "disconnected" && !host.StatusText.Contains("已连接"), "late connected poll cannot overwrite confirmed disconnect");
+            }
+        }
+
         static void TestWindowLifetime()
         {
             var entered = new ManualResetEvent(false);
@@ -112,6 +153,8 @@ namespace CompanyNetwork
                 CloseThroughNonClientX(host); // Initially unknown.
                 var connecting = host.Perform("--connect");
                 Check(entered.WaitOne(2000), "connection is in flight before X");
+                var duplicate = host.Perform("--gpt");
+                Check(duplicate.IsCompleted && !duplicate.Result && host.StatusText.Contains("另一项操作"), "competing operation gives explicit feedback");
                 CloseThroughNonClientX(host);
                 Check(!connecting.IsCompleted && disconnects == 0, "X never cancels or disconnects an in-flight connection");
                 release.Set();

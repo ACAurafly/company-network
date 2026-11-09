@@ -20,6 +20,7 @@ namespace CompanyNetwork {
   }
   internal OperationController(UserInstall user) : this(user.Sid, delegate(string action, Action<string> progress, Action check) {
    user.ReloadState(); user.CheckCancelled = check;
+   user.ReportPhase = delegate(string phase) { Diagnostics.Record("phase", phase); };
    try {
     if(action == "--connect") return user.Prepare(true, true, progress);
     if(action == "--prepare-only") return user.Prepare(false, false, progress);
@@ -27,7 +28,7 @@ namespace CompanyNetwork {
     if(action == "--remove") return user.Remove();
     if(action == "--gpt") return user.OpenGpt();
     throw new AppProblem("invalid_action", "无法识别此操作。");
-   } finally { user.CheckCancelled = delegate {}; }
+   } finally { user.CheckCancelled = delegate {}; user.ReportPhase = delegate {}; }
   }, user.Snapshot) {}
   internal ConnectionSnapshot Read() {
    var elapsed = System.Diagnostics.Stopwatch.StartNew();
@@ -48,11 +49,8 @@ namespace CompanyNetwork {
     Action check = delegate { if(stop.WaitOne(0)) throw new AppProblem("connection_cancelled", "连接已取消。"); };
     if(!stopping && action != "--gpt") check();
     Emit(stopping ? "disconnecting" : action == "--connect" ? "connecting" : "working");
-    string result = operate(action, delegate(string message) {
-     string phase = message.Contains("准备网络组件") ? "components" : message.Contains("保存个人配置") ? "configuration" : message.Contains("连接公司网络") ? "outer" : message.Contains("登录窗口") ? "inner_authentication_and_routes" : "operation";
-     Diagnostics.Record("phase", phase);
-     progress(message);
-    }, stopping ? (Action)delegate {} : check);
+    Diagnostics.Record("phase", stopping ? "disconnect" : action == "--connect" ? "connect" : action == "--prepare-only" ? "prepare" : action == "--gpt" ? "gpt" : "remove");
+    string result = operate(action, progress, stopping ? (Action)delegate {} : check);
     if(action == "--connect") check();
     if(stopping && Read().Kind != "disconnected") throw new AppProblem("disconnect_unconfirmed", "尚未确认两层会话均已结束，请重试断开。");
     if(stopping) stop.Reset();
