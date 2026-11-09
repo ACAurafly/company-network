@@ -1,0 +1,7 @@
+*.exe
+*.pdb
+*.zip
+build/
+__pycache__/
+*.private.*
+
