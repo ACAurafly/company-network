@@ -1,7 +1,7 @@
 # 01 单入口与可控连接生命周期
 
 Status: ready-for-agent
-Execution: open
+Execution: implemented-and-reviewed
 Blocked by: none
 
 实现范围：spec.md 的单桌面入口、归属安全的旧三入口迁移、主窗口常驻与找回、同用户单交互实例、托盘控制、实时真实状态、可取消连接、手动断开优先、失败回收与退出的真实结果。版本 1.3.0.0。

@@ -1,7 +1,7 @@
 # 03 业务验证与员工交付包
 
 Status: ready-for-agent
-Execution: open
+Execution: delivered-for-review; remaining-field-scope-in-maintenance-record
 Blocked by: 01, 02
 
 实现范围：按规格验证同一构建的桌面/托盘/取消/真实断开、公司内网与 GPT、飞书与外网路径；更新使用说明，生成源码包和员工包、SHA256及清晰验收结果。

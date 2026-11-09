@@ -1,7 +1,7 @@
 # 02 网络诊断、对照测速与最小修复
 
 Status: ready-for-agent
-Execution: open
+Execution: implemented; gateway-applied; colleague-field-validation-deferred-by-user
 Blocked by: 01
 
 实现范围：应用内脱敏诊断导出、阶段耗时/会话状态记录，以及可重复的 DNS/TCP/TLS/TTFB 冷热请求对照工具。根据父对话网络调查记录选择有证据的最小网络适配或可评审的网关修复；不能把历史 Fake-IP 推测当根因。
