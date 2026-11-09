@@ -24,6 +24,8 @@ Status: ready-for-agent
 
 ## Comments
 
+- 2026-11-09：按已核v0.2.20源码改用 `X-Request-ID` 与访问日志request_id关联，结果明确为客户端correlation候选；usage.session_id可连接thread_id。新增冻结任务manifest与实际源码SHA-256，正式质量对照使用答案移除后的版本；此前smoke只验收协议。413归属与恢复由主对话只读调查，不在此子任务续跑其他业务。
+
 - 2026-11-09：新增 [统一采样维护说明](../02-measurement-maintenance.md)、`tools/codex_latency.py` 和10项离线测试。复用已安装app-server，公开fixture、临时thread和按轮effort覆盖；保留失败分母和缺失原因。现场样本由主对话统一运行，本工单尚不声明effort收益或413恢复。
 
 - 2026-11-09：用户确认端到端验收接缝。已有两组观测统计及 6 条最近两小时的 413 记录，未做同任务 A/B。

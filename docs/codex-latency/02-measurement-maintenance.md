@@ -19,7 +19,9 @@ python tools/codex_latency.py --codex $codexBin --workdir $scratchRoot --output 
 
 默认每轮180秒，初始化/开thread各30秒。返回码0要求所有已执行样本通过，1表示至少一个未验收；每个样本后重写完整脱敏JSON。Ctrl+C保留当前取消样本并结束后续计划，未执行的计划不计为已执行分母。进程强制终止/断电时最后进行中的样本可能未写入，应另标为运行中断，不能根据上次JSON声明全批通过。
 
-调用已安装二进制 `app-server --stdio`，由其读取当前provider及现有认证；不读取/输出原始配置和凭据。固定 `gpt-6.1-sol`，仅 `turn/start.effort` 覆盖本次轮次；thread使用 `ephemeral=true`、`sandbox=read-only`、`approvalPolicy=never`。临时配置只追加 `model_providers.OpenAI.http_headers.X-Client-Request-ID` 叶子键（公开sample UUID），不替换认证headers；当前公司provider为OpenAI，切换provider后先维护这个已知关联键。必须用NAS日志核对覆盖生效、现有鉴权仍通过；不要仅凭本地成功假定已关联。
+调用已安装二进制 `app-server --stdio`，由其读取当前provider及现有认证；不读取/输出原始配置和凭据。固定 `gpt-6.1-sol`，仅 `turn/start.effort` 覆盖本次轮次；thread使用 `ephemeral=true`、`sandbox=read-only`、`approvalPolicy=never`。临时配置只追加 `model_providers.OpenAI.http_headers.X-Request-ID` 叶子键（公开sample UUID），不替换认证headers；当前公司provider为OpenAI，切换provider后先维护这个已知关联键。输出明确记录 `correlation_id` 和 `correlation_header=X-Request-ID`，该值是客户端提交候选，须在NAS访问日志 `request_id` 核对；usage表 `session_id=thread_id` 另提供会话连接。v0.2.20的client_request_id中间件不读取 `X-Client-Request-ID` 头，不能将此前同名字段当成服务端返回或可靠请求连接。必须核对覆盖生效、现有鉴权仍通过。
+
+结果schema v2的 `provenance` 保存采样器版本、当前实际执行源码字节SHA-256及冻结任务manifest SHA-256。manifest是按键排序、无额外空白的UTF-8 JSON，内容为模型、全部任务prompt/预期值/工具要求和固定夹具；只输出哈希，不输出prompt。正式30case需在同一运行结果中核对这些哈希；prompt修正前的smoke仅证明RPC/工具/完成协议，不能作为修正后质量对照。源码哈希针对实际执行文件，Git换行转换可能改变字节哈希，应以运行报告中的值为准。
 
 ## 冻结任务和口径
 

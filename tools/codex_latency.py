@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,8 @@ import time
 import uuid
 
 MODEL = "gpt-6.1-sol"
+SAMPLER_VERSION = "1.1"
+CORRELATION_HEADER = "X-Request-ID"
 FIXTURE = "17\n23\n41\n"
 TASKS = {
     "fixed": [("Reply exactly CODEX_LATENCY_OK and nothing else. Do not use tools.", "CODEX_LATENCY_OK", False)],
@@ -32,6 +35,17 @@ TASKS = {
     ],
 }
 USAGE = ("inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens")
+
+
+def provenance():
+    """Hash frozen inputs locally; never emit their prompt text."""
+    manifest = json.dumps({"model": MODEL, "tasks": TASKS, "fixture": FIXTURE},
+                          sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return {"sampler_version": SAMPLER_VERSION,
+            "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "task_manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+            "task_manifest_scope": "canonical UTF-8 JSON: model, all task prompts/expected values/tool requirements, and fixture; sorted keys, compact separators",
+            "fixture_sha256": hashlib.sha256(FIXTURE.encode("utf-8")).hexdigest()}
 
 
 class SampleError(Exception):
@@ -339,7 +353,9 @@ def sample(args, task, effort, pair, sequence, fixture):
               "warmup": False, "context": "new ephemeral thread; multi retains exactly three turns",
               "turns": [], "status": "pending", "accepted": False,
               "started_utc": datetime.now(timezone.utc).isoformat(), "elapsed_ms": None}
-    result["client_request_id"] = result["sample_id"]
+    result["correlation_id"] = result["sample_id"]
+    result["correlation_header"] = CORRELATION_HEADER
+    result["correlation_scope"] = "client supplied candidate; confirm gateway access request_id, or join usage.session_id to thread_id"
     app = None
     started = time.perf_counter()
     try:
@@ -349,7 +365,7 @@ def sample(args, task, effort, pair, sequence, fixture):
         thread = app.rpc("thread/start", {
             "cwd": str(fixture.parent), "model": MODEL, "ephemeral": True,
             "approvalPolicy": "never", "sandbox": "read-only",
-            "config": {"model_providers.OpenAI.http_headers.X-Client-Request-ID": result["client_request_id"]},
+            "config": {"model_providers.OpenAI.http_headers." + CORRELATION_HEADER: result["correlation_id"]},
             "dynamicTools": [{"type": "function", "name": "read_fixture", "description": "Read the frozen benchmark numbers fixture.",
                               "inputSchema": {"type": "object", "properties": {"key": {"type": "string", "enum": ["numbers"]}}, "required": ["key"], "additionalProperties": False}}],
         })
@@ -431,6 +447,7 @@ def main(argv=None):
     except (OSError, subprocess.TimeoutExpired):
         version = None
     records = []
+    code_provenance = provenance()
     tasks = ["fixed"] if args.smoke else [args.task] if args.task else list(TASKS)
     with tempfile.TemporaryDirectory(prefix="codex-latency-", dir=args.workdir) as temp:
         fixture = Path(temp) / "numbers.txt"
@@ -442,7 +459,8 @@ def main(argv=None):
                 for effort in order:
                     row = sample(args, task, effort, pair, len(records)+1, fixture)
                     records.append(row)
-                    report = {"schema_version": 1, "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                    report = {"schema_version": 2, "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                              "provenance": code_provenance,
                               "runtime_version": version, "model": MODEL, "samples": records, "summary": summarize(records),
                               "safety": {"ephemeral": True, "sandbox": "read-only", "approval_policy": "never", "existing_auth": True, "persistent_config_changed": False, "raw_content_saved": False},
                               "missing": {"gateway_stages": "join separate gateway logs by time and IDs; not available in app-server stream", "wire_protocol": "not inferred from missing stderr warnings; requires gateway/client log evidence"}}
