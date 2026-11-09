@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-执行状态：未开始。
+执行状态：采样工具和交接文档已实现，离线测试通过；现场effort对照、多轮协议及413具体会话恢复待主对话验收。原全局默认未修改。
 
 依赖：[01 协议对齐](01-align-client-transport.md)；[总规格](../spec.md)。
 
@@ -23,5 +23,7 @@ Status: ready-for-agent
 停止条件：达到明确对照结果后结束，不默认扩大负载；对照不确定时说明需要补充的具体样本。超大正文重放仅限隔离环境或脱敏事件，不发往生产。
 
 ## Comments
+
+- 2026-11-09：新增 [统一采样维护说明](../02-measurement-maintenance.md)、`tools/codex_latency.py` 和10项离线测试。复用已安装app-server，公开fixture、临时thread和按轮effort覆盖；保留失败分母和缺失原因。现场样本由主对话统一运行，本工单尚不声明effort收益或413恢复。
 
 - 2026-11-09：用户确认端到端验收接缝。已有两组观测统计及 6 条最近两小时的 413 记录，未做同任务 A/B。
