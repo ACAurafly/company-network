@@ -55,6 +55,8 @@ python -m unittest discover -s tools -p "test_*.py" -v
 
 离线检查不代替员工实机或生产业务验收。员工打包不包含治理文件；源码允许范围继续拒绝未知文件和私密配置。公开仓库不包含载荷、员工包或凭据。
 
+云端 Windows 使用 pwsh，生命周期套件显式传入 .github/utf8-test-host.manifest，以 UTF-8 进程代码页测试中文快捷方式；本机入口可直接执行。该结果不证明生产客户端在英文系统代码页下的快捷方式兼容性。
+
 ## 历史与后续维护
 新工作用 GitHub Issue；docs/issues/ 与 docs/codex-latency/issues/ 保留原状态。旧 .scratch 调查按 [历史入口](docs/agents/issue-tracker.md) 接续；tooling/local_sdd.py 仅作历史兼容。
 团队 skills 真源为 tooling/skills/，修改后运行 sync-agents。完成规格保留历史，后续演进另建规格并引用原记录。提交与 GitHub 写操作一律使用 ACAurafly。

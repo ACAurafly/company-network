@@ -15,4 +15,6 @@
 
 员工打包工具在原隐私检查之后跳过明确的仓库治理路径，未知文件仍要求审查。治理文件不进入员工源码包；公开仓库不包含构建载荷或员工个人配置。原交付 ZIP、哈希及历史验收不改。
 
+Windows 云端使用 pwsh 和显式 UTF-8 生命周期测试进程；英文运行器已复现旧 WScript 快捷方式路径被转换为问号的限制。测试代码页参照 [Microsoft UTF-8 指南](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)，生产英文 Windows 兼容性作为独立待调查项保留。
+
 本次初始化按用户直接授权部署；自动检查不代表最终人工评审。具体结果与边界见本次规格的 verification.md。

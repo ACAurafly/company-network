@@ -1,4 +1,5 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([string]$HostManifestPath)
+$ErrorActionPreference = 'Stop'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 $output = Join-Path $PSScriptRoot 'LifecycleTests.exe'
 $arguments = @(
@@ -11,6 +12,9 @@ $arguments = @(
     (Join-Path $PSScriptRoot 'WindowsIntegration.cs'), (Join-Path $PSScriptRoot 'Program.cs'), (Join-Path $PSScriptRoot 'OperationController.cs'), (Join-Path $PSScriptRoot 'Diagnostics.cs'),
     (Join-Path $PSScriptRoot 'LifecycleTests.cs')
 )
+if ($HostManifestPath) {
+    $arguments += '/win32manifest:' + (Resolve-Path -LiteralPath $HostManifestPath).Path
+}
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw '生命周期测试编译失败。' }
 & $output
