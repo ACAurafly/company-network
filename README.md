@@ -1,5 +1,7 @@
 # 公司网络 1.3
 
+2026-11-17 Codex 中转已完成协议、超时及限额备用上游加固，维护和验证见 [中转可靠性维护](docs/codex-latency/05-relay-reliability.md)，方案依据见 [架构决策](docs/decisions-codex-relay-reliability.md)。
+
 公开源码仓库：[ACAurafly/company-network](https://github.com/ACAurafly/company-network)。新变更使用从 XDance 移植的 [SDD 贡献流程](https://github.com/ACAurafly/company-network/blob/main/CONTRIBUTING.md)：GitHub Issue → spec / plan / tasks / verification → PR 验收；[来源与适配](docs/sdd-origin.md)。仓库不包含管理员凭据、员工个人配置或构建载荷；完整治理文件在 GitHub，员工源码 ZIP 仅用于现有构建和交付。
 
 Windows 10/11 x64 员工客户端：通过一个“公司网络”入口连接、查看状态、打开 GPT、断开并导出诊断。右上角 × 直接关闭主窗口，连接和后台操作继续；桌面入口或托盘可重新打开窗口。使用方法见 [员工说明.txt](员工说明.txt)。
