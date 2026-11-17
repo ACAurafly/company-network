@@ -4,4 +4,7 @@
 build/
 __pycache__/
 *.private.*
+.scratch/
+.venv/
+*.pyc
 

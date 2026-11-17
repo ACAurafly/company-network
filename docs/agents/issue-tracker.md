@@ -1,5 +1,7 @@
 # Issue tracker: Local Markdown
 
+> 2026-11-17 起，公司网络新工作登记于 `ACAurafly/company-network` GitHub Issue，规格保存在 `specs/<issue号>-<slug>/`；流程见根 CONTRIBUTING.md。以下约定保留用于历史本地调查，不覆盖新的公司 SDD 入口。
+
 Issues and specs for this workspace live as markdown files in `.scratch/`.
 
 ## Conventions

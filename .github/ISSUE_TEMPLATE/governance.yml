@@ -1,0 +1,51 @@
+name: 规范与工具
+description: 规范与工具：完整 SDD，从问题和验收开始
+title: '[governance] '
+labels:
+- type:governance
+body:
+- type: markdown
+  attributes:
+    value: 先描述问题，建立 spec/plan/tasks/verification。Issue 管交付状态，规格文件随 PR 评审。
+- type: textarea
+  id: problem
+  attributes:
+    label: 问题 / 假设与场景
+    description: 谁遇到什么问题？研究任务写假设与基线。
+  validations:
+    required: true
+- type: dropdown
+  id: area
+  attributes:
+    label: 主要模块
+    options:
+    - bootstrap (员工客户端)
+    - tools (运维与打包)
+    - tooling (SDD)
+    - docs (文档)
+    - cross-component
+  validations:
+    required: true
+- type: textarea
+  id: acceptance
+  attributes:
+    label: 可观察验收 / 研究协议
+    description: 预期结果、边界、数据/指标与失败案例。
+  validations:
+    required: true
+- type: textarea
+  id: context
+  attributes:
+    label: 上下文、证据与约束
+    description: 实际日志/版本、契约、性能、数据授权或相关 ADR。
+- type: input
+  id: spec
+  attributes:
+    label: 规格目录
+    placeholder: 创建 Issue 后填写 specs/<issue号>-<slug>
+- type: input
+  id: owner
+  attributes:
+    label: 负责人 / 需求及方案评审人
+  validations:
+    required: true

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "workflows": {
+    "speckit": {
+      "name": "Full SDD Cycle",
+      "version": "1.0.1",
+      "description": "Runs specify → plan → tasks → implement with review gates",
+      "source": "bundled",
+      "installed_at": "2026-10-30T01:19:57.560557+00:00",
+      "updated_at": "2026-10-30T01:19:57.560557+00:00"
+    },
+    "company-network": {
+      "name": "Company Network SDD",
+      "version": "1.0.0",
+      "description": "Issue-linked specify → plan → tasks → analyze → implement → verification",
+      "source": ".specify/workflows/company-network/workflow.yml",
+      "installed_at": "2026-11-17T00:00:00+08:00",
+      "updated_at": "2026-11-17T00:00:00+08:00"
+    }
+  }
+}

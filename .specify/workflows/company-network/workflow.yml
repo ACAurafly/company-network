@@ -1,0 +1,72 @@
+schema_version: "1.0"
+workflow:
+  id: company-network
+  name: Company Network SDD
+  version: "1.0.0"
+  description: "Issue-linked feature: specify → plan → tasks → analyze → implement → verification"
+
+requires:
+  speckit_version: ">=1.2.5"
+  integrations:
+    any: [codex]
+
+inputs:
+  spec:
+    type: string
+    required: true
+    prompt: "描述本次需求及验收标准"
+
+steps:
+  - id: feature
+    type: shell
+    run: python tooling/sdd.py current
+    output_format: json
+
+  - id: specify
+    command: speckit.specify
+    integration: codex
+    input:
+      args: |
+        SPECIFY_FEATURE_DIRECTORY={{ steps.feature.output.data.FEATURE_DIR }}
+        先读 CONTRIBUTING.md，复用以上目录，保留已有需求与澄清记录。
+        本次需求：{{ inputs.spec }}
+
+  - id: plan
+    command: speckit.plan
+    integration: codex
+    input:
+      args: |
+        SPECIFY_FEATURE_DIRECTORY={{ steps.feature.output.data.FEATURE_DIR }}
+        按 CONTRIBUTING.md 和项目 constitution 规划，只覆盖本次需求。
+
+  - id: tasks
+    command: speckit.tasks
+    integration: codex
+    input:
+      args: |
+        SPECIFY_FEATURE_DIRECTORY={{ steps.feature.output.data.FEATURE_DIR }}
+        按 CONTRIBUTING.md 拆分任务；包含适用测试与 verification.md 交付记录。
+
+  - id: analyze
+    command: speckit.analyze
+    integration: codex
+    capture: true
+    input:
+      args: |
+        SPECIFY_FEATURE_DIRECTORY={{ steps.feature.output.data.FEATURE_DIR }}
+        核对 spec.md、plan.md、tasks.md 一致性，报告阻塞实现的问题。
+
+  - id: implement
+    command: speckit.implement
+    integration: codex
+    input:
+      args: |
+        SPECIFY_FEATURE_DIRECTORY={{ steps.feature.output.data.FEATURE_DIR }}
+        先复核上一阶段分析；解决影响实现的需求冲突后，按 CONTRIBUTING.md 完成任务。
+        运行适用测试，在 verification.md 记录实际结果；只勾选已完成任务。
+        上一阶段分析输出：
+        {{ steps.analyze.output.stdout }}
+
+  - id: verify
+    type: shell
+    run: python tooling/sdd.py check --spec {{ steps.feature.output.data.RELATIVE_DIR }} --require-complete

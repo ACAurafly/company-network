@@ -17,6 +17,8 @@ PAYLOAD_FILES = {
 } | {"profile.vpn", "transport.vpn", "company-ca.cer", "public-config.json"}
 SOURCE_EXTENSIONS = {".cs", ".ps1", ".ico", ".manifest", ".py", ".md", ".txt"}
 EXCLUDED_PARTS = {".git", "build", "private", "evidence", "investigation", "client_log", "__pycache__"}
+REPOSITORY_ONLY_ROOTS = {".agents", ".claude", ".github", ".githooks", ".specify", "specs", "tooling"}
+REPOSITORY_ONLY_FILES = {"AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", ".gitattributes"}
 
 
 def sha(data):
@@ -41,6 +43,8 @@ def source_files(repo):
                 any(p.lower() in EXCLUDED_PARTS for p in entry.parts) or
                 any(s in lower for s in (".private.", "state.json", "vpn_client.config", "credentials", "accounts"))):
             raise ValueError("Tracked file requires release review: " + name)
+        if name in REPOSITORY_ONLY_FILES or entry.parts[0] in REPOSITORY_ONLY_ROOTS:
+            continue
         permitted = (name in {".gitignore", "README.md", "INTEGRATION.md", "员工说明.txt"} or
                      (entry.suffix.lower() in SOURCE_EXTENSIONS and
                       len(entry.parts) > 1 and entry.parts[0] in {"bootstrap", "tools", "docs"}))

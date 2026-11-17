@@ -1,0 +1,10 @@
+#!/bin/sh
+# Git runs pre-commit from the worktree root, including with an alternate index.
+if command -v python >/dev/null 2>&1; then
+    exec python tooling/check_code_size.py
+elif command -v python3 >/dev/null 2>&1; then
+    exec python3 tooling/check_code_size.py
+else
+    echo 'Code size check requires Python 3.11+; install Python and retry.' >&2
+    exit 1
+fi

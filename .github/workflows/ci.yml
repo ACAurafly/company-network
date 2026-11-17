@@ -1,0 +1,27 @@
+name: Company Network
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  client:
+    name: Company Network Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Windows client offline tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($suite in @('Core', 'Adapter', 'Lifecycle', 'Diagnostics')) {
+            & "bootstrap/Test-$suite.ps1"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Operations and packaging tests
+        run: python -m unittest discover -s tools -p "test_*.py" -v

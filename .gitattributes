@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.ico binary
+# Pinned upstream scripts; hashes: tooling/vendor/spec-kit/.
+.specify/scripts/** linguist-vendored=true
+# Upstream-derived Python adapter; provenance: docs/sdd-origin.md.
+tooling/local_speckit/*.py linguist-vendored=true
