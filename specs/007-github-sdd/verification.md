@@ -7,9 +7,11 @@
 | FR-002 | Windows/Python 3.12：tooling/tests 57 项通过、0 skip（含官方 v1.2.5 工作流校验）；sync-agents --check 8 文件一致；verify_vendor 验证 v1.1.2 的 54 个官方文件。来源见 docs/sdd-origin.md。 | passed |
 | FR-003 | 草稿 PR #8 的 SDD Policy/Tooling 已通过，含真实 Issue #7、路径覆盖和三工具漂移检查；正式评审门禁待最终证据补齐后执行。 | pending |
 | FR-004 | tools 全套 56 项通过；Core 19 / Adapter 5 / Lifecycle 16 / Diagnostics 36 均通过；使用既有 1.3 测试 EXE 和显式载荷实际打包，60 源码/4 员工条目、资源/CRC/SHA256 全通过。仅验证打包兼容，未新建员工业务验收。 | passed |
-| FR-005 | PR 的 Spec Kit Windows/Linux 与 SDD 均通过；员工 CI 首次因 Windows PowerShell 按本地代码页解析 UTF-8 脚本失败，改为与本机一致的 pwsh 后复验。 | pending |
+| FR-005 | PR 的 Spec Kit Windows/Linux 与 SDD 均通过；员工 76 项已在 pwsh + UTF-8 生命周期测试进程通过。运维测试将临时目录的短路径别名与完整路径归一化后继续复验。 | pending |
 
 Result: passed、verified，或注明理由的 not-applicable；其余状态不可交付。
 
 ## Open Items
 本记录将随真实验证更新。最终人工评审尚未代签；本轮不执行生产网络改动或员工分发。
+
+英文 Windows 生产进程的中文 WScript 快捷方式已出现代码页限制；CI 使用显式 UTF-8 测试进程，这项结果不视为生产英文代码页兼容性验收。

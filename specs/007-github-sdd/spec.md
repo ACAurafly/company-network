@@ -3,7 +3,7 @@ id: 007-github-sdd
 issue: 7
 owner: ACAurafly
 status: implementing
-paths: [AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md, .gitignore, .gitattributes, .agents/**, .claude/**, .github/**, .githooks/**, .specify/**, tooling/**, tools/package_release.py, tools/test_release_sources.py, bootstrap/Test-Lifecycle.ps1, docs/sdd-origin.md, docs/agents/issue-tracker.md]
+paths: [AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md, .gitignore, .gitattributes, .agents/**, .claude/**, .github/**, .githooks/**, .specify/**, tooling/**, tools/package_release.py, tools/test_release_sources.py, tools/test_codex_transport.py, bootstrap/Test-Lifecycle.ps1, docs/sdd-origin.md, docs/agents/issue-tracker.md]
 ---
 # Feature Specification: 007-github-sdd
 

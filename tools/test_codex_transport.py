@@ -54,7 +54,7 @@ class TransportTests(unittest.TestCase):
 
     def test_cli_private_backup_and_rollback_without_secret_output(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder).resolve()
             (root / "CodexPrivate").mkdir()
             config = root / "config.toml"
             config.write_bytes(self.fixture())
